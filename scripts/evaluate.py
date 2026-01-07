@@ -10,8 +10,10 @@
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
+import yaml
 from isaaclab.app import AppLauncher
 
 # Add parent directory to path for imports
@@ -28,13 +30,6 @@ parser.add_argument(
     type=str,
     required=True,
     help="Path to evaluation configuration YAML file",
-)
-
-parser.add_argument(
-    "--output-dir",
-    type=str,
-    default="./eval_results",
-    help="Directory to save evaluation results (default: ./eval_results)",
 )
 
 parser.add_argument(
@@ -74,6 +69,22 @@ def main():
         print(f"Error loading config: {e}", file=sys.stderr)
         sys.exit(1)
     
+    # Save to log_dir from config (encapsulated in a run subdirectory)
+    if not config.log_dir:
+        raise ValueError("log_dir must be specified in config YAML")
+    
+    log_dir = Path(config.log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create a timestamped run directory to encapsulate all results (including numpy files)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = log_dir / f"eval_run_{timestamp}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Update config.log_dir to point to run_dir so numpy files are saved there
+    original_log_dir = config.log_dir
+    config.log_dir = str(run_dir)
+    
     # Run evaluation
     # Pass checkpoint path to evaluator for lazy loading
     evaluator = NavigationEvaluator(config, checkpoint_path=args_cli.policy)
@@ -85,25 +96,30 @@ def main():
     results = evaluator.evaluate(policy=None)
     
     # Generate reports
-    output_dir = Path(args_cli.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
     reporter = EvaluationReporter(results)
     
-    # Save JSON report
-    json_path = output_dir / "results.json"
-    reporter.save_json(json_path)
+    # Save results in the run directory
+    log_json_path = run_dir / "results.json"
+    log_summary_path = run_dir / "summary.txt"
     
-    # Save text summary
-    summary_path = output_dir / "summary.txt"
-    reporter.save_summary(summary_path)
+    reporter.save_json(log_json_path)
+    reporter.save_summary(log_summary_path)
+    
+    # Save a copy of the config for reference
+    config_path = run_dir / "config.yaml"
+    # Restore original log_dir in config before saving
+    config.log_dir = original_log_dir
+    with open(config_path, "w") as f:
+        yaml.dump(config.to_dict(), f, default_flow_style=False)
     
     # Print summary
     if not args_cli.quiet:
         reporter.print_summary()
-        print(f"\nResults saved to: {output_dir}")
-        print(f"  - JSON: {json_path}")
-        print(f"  - Summary: {summary_path}")
+        print(f"\nResults saved to log directory: {run_dir}")
+        print(f"  - JSON: {log_json_path}")
+        print(f"  - Summary: {log_summary_path}")
+        print(f"  - Config: {config_path}")
+        print(f"  - NumPy state logs: {run_dir}/*.npy")
     
     # Exit with error code if evaluation failed
     if results.get("status") != "SUCCESS":

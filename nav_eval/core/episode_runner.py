@@ -20,7 +20,7 @@ import torch
 from ..domain.errors import EvaluationRuntimeError
 from ..domain.metrics import EpisodeMetrics
 from ..utils.state_logger import StateLogger
-from ..utils.success_checker import check_success
+from ..utils.task_checker import check_success
 
 
 class EpisodeRunner:
