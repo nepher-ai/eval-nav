@@ -28,6 +28,10 @@ num_envs: 10
 # Scoring version (MVP supports v1 only)
 scoring_version: "v1"
 
+# Logging
+log_dir: "logs/animal-nav"
+enable_logging: true
+
 # Environment-specific configuration
 env_config:
   nav_env_id: "waypoint-benchmark-v1"
@@ -35,4 +39,9 @@ env_config:
 
 # Timeout for entire evaluation (seconds, None = no timeout)
 timeout_seconds: null
+
+# Policy checkpoint path (optional)
+# If "default" or not specified, will look for "best_policy/best_policy.pt" 
+# in the task project folder (task-animal-nav)
+policy_path: "default"
 

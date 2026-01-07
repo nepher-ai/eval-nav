@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -69,6 +70,11 @@ class EvalConfig:
     enable_logging: bool = False
     """Whether to enable state logging. Requires log_dir to be set."""
     
+    # Policy
+    policy_path: str | None = None
+    """Path to policy checkpoint file. If None or "default", will attempt to find 
+    "best_policy/best_policy.pt" in the task project folder."""
+    
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> EvalConfig:
         """Load configuration from YAML file.
@@ -86,7 +92,10 @@ class EvalConfig:
         with open(config_path, "r") as f:
             data = yaml.safe_load(f)
         
-        return cls(**data)
+        config = cls(**data)
+        # Resolve policy_path if it's "default" or None
+        config._resolve_policy_path()
+        return config
     
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
@@ -103,6 +112,7 @@ class EvalConfig:
             "timeout_seconds": self.timeout_seconds,
             "log_dir": self.log_dir,
             "enable_logging": self.enable_logging,
+            "policy_path": self.policy_path,
         }
     
     def validate(self) -> None:
@@ -127,4 +137,55 @@ class EvalConfig:
         
         if self.num_envs < 1:
             raise ValueError("num_envs must be >= 1")
+    
+    def _resolve_policy_path(self) -> None:
+        """Resolve policy_path to actual file path.
+        
+        If policy_path is None or "default", attempts to find 
+        "best_policy/best_policy.pt" in the task project folder.
+        """
+        if self.policy_path is None or self.policy_path == "default":
+            # Try to find task project folder
+            task_project_dir = self._find_task_project_folder()
+            if task_project_dir:
+                default_path = task_project_dir / "best_policy" / "best_policy.pt"
+                if default_path.exists():
+                    self.policy_path = str(default_path)
+                else:
+                    # Set to None if default path doesn't exist (will use random actions)
+                    self.policy_path = None
+            else:
+                # Could not find task project folder, set to None
+                self.policy_path = None
+    
+    def _find_task_project_folder(self) -> Path | None:
+        """Find the task project folder based on task_module.
+        
+        Returns:
+            Path to task project folder if found, None otherwise.
+        """
+        if not self.task_module:
+            return None
+        
+        # Try to get the module's file location
+        try:
+            module = importlib.import_module(self.task_module)
+            if hasattr(module, "__file__") and module.__file__:
+                module_path = Path(module.__file__)
+                # Navigate up from the module file to find the task project root
+                # Module structure: source/task-*/source/module/...
+                # We want: source/task-*/
+                current = module_path.parent
+                # Go up until we find a directory starting with "task-"
+                for _ in range(10):  # Limit depth to avoid infinite loops
+                    if current.name.startswith("task-"):
+                        return current
+                    parent = current.parent
+                    if parent == current:  # Reached root
+                        break
+                    current = parent
+        except ImportError:
+            pass
+        
+        return None
 

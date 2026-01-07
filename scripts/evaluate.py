@@ -33,13 +33,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--policy",
-    type=str,
-    default=None,
-    help="Path to policy checkpoint (optional, uses random actions if not provided)",
-)
-
-parser.add_argument(
     "--quiet",
     action="store_true",
     help="Suppress console output",
@@ -87,11 +80,13 @@ def main():
     
     # Run evaluation
     # Pass checkpoint path to evaluator for lazy loading
-    evaluator = NavigationEvaluator(config, checkpoint_path=args_cli.policy)
+    evaluator = NavigationEvaluator(config, checkpoint_path=config.policy_path)
     
-    if args_cli.policy:
-        print(f"[INFO] Policy checkpoint specified: {args_cli.policy}")
+    if config.policy_path:
+        print(f"[INFO] Policy checkpoint specified: {config.policy_path}")
         print("[INFO] Policy will be loaded when first environment is created")
+    else:
+        print("[INFO] No policy checkpoint specified, using random actions")
     
     results = evaluator.evaluate(policy=None)
     
@@ -130,8 +125,14 @@ if __name__ == "__main__":
     try:
         # Run the main function
         main()
+    except KeyboardInterrupt:
+        print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
+        sys.exit(130)
     except Exception as e:
-        raise e
+        import traceback
+        print(f"[ERROR] Evaluation failed: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
     finally:
         # Close the app
         simulation_app.close()

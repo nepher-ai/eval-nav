@@ -40,3 +40,8 @@ env_config:
 # Timeout for entire evaluation (seconds, None = no timeout)
 timeout_seconds: null
 
+# Policy checkpoint path (optional)
+# If "default" or not specified, will look for "best_policy/best_policy.pt" 
+# in the task project folder (task-leatherback-waypointnav)
+policy_path: "default"
+
