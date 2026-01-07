@@ -1,232 +1,236 @@
-# Navigation Evaluation Framework
+# eval-nav: Navigation Evaluation Framework for IsaacLab
 
-**A minimal but strong evaluation system for IsaacLab navigation environments.**
+Standardized, reproducible evaluation for IsaacLab navigation environments.
 
 ## Overview
 
-This framework provides standardized, reproducible evaluation for navigation tasks in IsaacLab. It implements a fixed evaluation campaign system with deterministic execution, comprehensive metrics, and clear reporting.
+`eval-nav` evaluates trained navigation policies across multiple envs-nav scenes with:
 
-## Features
+- **Deterministic execution**: Fixed seeds and reproducible results
+- **V1 scoring**: Success rate (70%) + completion time (30%)
+- **Multi-scene evaluation**: Test across different `nav_env_id` and `nav_scene` combinations
+- **Structured output**: JSON results, text summaries, and per-episode state logs
 
-### ✅ Core Evaluation Capability
-- Load student-provided IsaacLab navigation environments
-- Run fixed evaluation campaigns with:
-  - Predefined envs-nav scenes
-  - Fixed random seeds
-  - Fixed number of episodes
-  - Fixed time horizon per episode
-- Fully automatic, non-interactive execution
-- Deterministic results
+## Requirements
 
-### ✅ Minimal but Strong Config System
-- Select target Gym/envs-nav environment
-- Configure scenes/environments list
-- Set seeds & episode count
-- Define scoring version (MVP = V1 only)
-- Basic evaluation parameters
-
-### ✅ MVP Scoring System (V1)
-- Focus on fundamental navigation capability
-- Metrics:
-  - Success rate (70% weight)
-  - Normalized time-to-completion (30% weight)
-- Clear, simple final score normalized to [0, 1]
-- Failures heavily penalized but well-defined
-
-### ✅ Essential Metric Collection
-- Per-episode data:
-  - Success/fail status
-  - Steps to completion
-  - Timeout indicator
-  - Basic performance stats
-- Aggregate summary:
-  - Overall success rate
-  - Mean completion time (successful episodes)
-  - Final score
-
-### ✅ Basic Failure Handling
-- Evaluation always produces structured outcome
-- States: `SUCCESS`, `ENV_ERROR`, `EVAL_ERROR`, `TIMEOUT`
-- Each includes short explanation and lightweight log output
-- No silent failures
-
-### ✅ Reproducibility Baseline
-- Pinned IsaacLab version expectation
-- Fixed seeds
-- Same configured scenes for everyone
-- Stable output format
-- Runtime metadata recorded
-
-### ✅ Output & Reporting
-- **Machine-readable**: JSON report with status, score, metrics, episode stats, metadata
-- **Human-readable**: Text summary with performance interpretation
+- IsaacLab 2.3+
+- Isaac Sim 5.1+
+- envs-nav installed (`pip install -e source/envs-nav`)
+- Target environments pre-downloaded (via envs-nav)
 
 ## Installation
 
 ```bash
+# 1. Install envs-nav (required for navigation environments)
+# See: source/envs-nav/README.md
+cd source/envs-nav
+pip install -e .
+
+# 2. Pre-download target environments
+# See available environments: envs-nav list
+envs-nav download waypoint-benchmark-v1 waypoint-sample-v1
+
+# 3. Install eval-nav
 cd source/eval-nav
 pip install -e .
 ```
 
+For envs-nav setup and CLI usage, see [envs-nav README](https://github.com/nepher-ai/envs-nav).
+
 ## Quick Start
 
-### 1. Create Evaluation Config
-
-Create a YAML configuration file (see `configs/` for examples):
+### 1. Create Configuration
 
 ```yaml
-task_name: "Nepher-Animal-WaypointNav-Envs-Play-v0"
+# config.yaml
+task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
+task_module: "leatherbacknav"
 
-scenes:
-  - 0
-  - 1
-  - 2
+env_scenes:
+  - nav_env_id: "waypoint-benchmark-v1"
+    nav_scene: 0
+  - nav_env_id: "waypoint-sample-v1"
+    nav_scene: 0
 
-seeds:
-  - 42
-  - 123
-
+seeds: [42]
 num_episodes: 10
+max_episode_steps: 900
+num_envs: 10
 scoring_version: "v1"
 
-env_config:
-  nav_env_id: "waypoint-benchmark-v1"
-  nav_scene: 0
+log_dir: "logs/my-eval"
+enable_logging: true
+policy_path: "default"
 ```
 
 ### 2. Run Evaluation
 
 ```bash
-python scripts/evaluate.py --config configs/task-animal-nav.yaml --output-dir results/
+python scripts/evaluate.py --config config.yaml --headless
 ```
 
 ### 3. View Results
 
-Results are saved in two formats:
-- `results.json`: Machine-readable JSON report
-- `summary.txt`: Human-readable text summary
-
-## Example Configurations
-
-### task-animal-nav
-
-Evaluates the ANYmal B waypoint navigation environment:
-
-```bash
-python scripts/evaluate.py --config configs/task-animal-nav.yaml --output-dir results/animal-nav/
 ```
-
-### task-leatherback-waypointnav
-
-Evaluates the Leatherback waypoint navigation environment:
-
-```bash
-python scripts/evaluate.py --config configs/task-leatherback-waypointnav.yaml --output-dir results/leatherback/
+logs/my-eval/eval_run_YYYYMMDD_HHMMSS/
+├── results.json    # Machine-readable results
+├── summary.txt     # Human-readable summary
+├── config.yaml     # Evaluation configuration
+└── data/          # Episode state logs (.npy)
 ```
 
 ## Configuration Reference
 
-### Required Fields
+### Required
 
-- `task_name`: Gymnasium task name (e.g., `"Nepher-Animal-WaypointNav-Envs-Play-v0"`)
+```yaml
+task_name: "Nepher-Task-Name-v0"      # Gymnasium task ID
+task_module: "modulename"             # Import module for env registration
+num_envs: 10                          # Parallel environments
+log_dir: "logs/eval"                  # Output directory
+env_scenes:                           # Scene combinations
+  - nav_env_id: "waypoint-benchmark-v1"
+    nav_scene: 0
+```
 
-### Optional Fields
+### Optional
 
-- `scenes`: List of scene IDs to evaluate (default: `[0]`)
-- `seeds`: List of random seeds (default: `[42]`)
-- `num_episodes`: Episodes per scene-seed combination (default: `10`)
-- `max_episode_steps`: Maximum steps per episode (default: `None` = use env default)
-- `scoring_version`: Scoring version, MVP supports `"v1"` only (default: `"v1"`)
-- `env_config`: Environment-specific configuration dict
-- `timeout_seconds`: Maximum wall-clock time for evaluation (default: `None`)
+```yaml
+seeds: [42]                           # Random seeds (default: [42])
+num_episodes: 10                      # Episodes per scene-seed (default: 10)
+max_episode_steps: 900                # Max steps per episode (default: env default)
+scoring_version: "v1"                 # Scoring version (default: "v1")
+timeout_seconds: null                 # Evaluation timeout (default: none)
+enable_logging: false                 # Save episode states (default: false)
+policy_path: "default"                # Policy checkpoint path (default: none)
+                                      # "default" = auto-detect from task module
+                                      # null = random actions
+```
+
+**Total episodes:** `len(env_scenes) × len(seeds) × num_episodes`
 
 ## Output Format
 
-### JSON Report Structure
+### results.json
 
 ```json
 {
   "status": "SUCCESS",
-  "score": 0.85,
+  "score": 0.9537,
   "metrics": {
-    "total_episodes": 90,
-    "successful_episodes": 78,
-    "failed_episodes": 12,
-    "timeout_episodes": 5,
-    "success_rate": 0.8667,
+    "total_episodes": 20,
+    "successful_episodes": 19,
+    "success_rate": 0.95,
     "mean_completion_time": 245.3,
-    "std_completion_time": 45.2,
-    "mean_steps": 280.5,
-    "std_steps": 120.3
+    "std_completion_time": 45.2
   },
   "episodes": [...],
   "metadata": {...}
 }
 ```
 
-### Status Values
-
-- `SUCCESS`: Evaluation completed successfully
-- `ENV_ERROR`: Environment failed to load
-- `EVAL_ERROR`: Runtime error during evaluation
-- `TIMEOUT`: Evaluation exceeded time limit
-
-## Scoring System (V1)
-
-The V1 scoring system computes a final score in [0, 1] range:
+### summary.txt
 
 ```
-score = 0.7 * success_rate + 0.3 * time_component
+Navigation Evaluation Summary
+Status: SUCCESS
+Final Score: 0.9537
+Success Rate: 95.00%
+Mean Completion Time: 245.30 steps
 ```
 
-Where:
-- `success_rate`: Fraction of successful episodes [0, 1]
-- `time_component`: Normalized time-to-completion for successful episodes [0, 1]
-  - Faster completion = higher time_component
-  - Episodes exceeding max_normalized_time get 0
-
-## MVP Non-Goals
-
-The following are **not** included in the MVP (intentionally kept lean):
-
-- ❌ V2 multi-factor scoring
-- ❌ Safety or robustness metrics
-- ❌ Multi-objective benchmarking
-- ❌ UI
-- ❌ Upload handling
-- ❌ Docker orchestration
-- ❌ Visual analytics
-- ❌ Leaderboard system
-
-## Development
-
-### Project Structure
+## Scoring (V1)
 
 ```
-eval-nav/
-├── eval_nav/
-│   ├── __init__.py
-│   ├── config.py          # Configuration system
-│   ├── evaluator.py       # Core evaluation runner
-│   ├── scorer.py          # V1 scoring system
-│   ├── metrics.py         # Metric collection
-│   ├── reporter.py        # Output generation
-│   └── errors.py          # Failure handling
-├── scripts/
-│   └── evaluate.py        # CLI entry point
-├── configs/
-│   ├── task-animal-nav.yaml
-│   └── task-leatherback-waypointnav.yaml
-├── setup.py
-├── pyproject.toml
-└── README.md
+score = 0.7 × success_rate + 0.3 × time_component
 ```
+
+- **Success rate** (70%): Fraction of episodes reaching goal
+- **Time component** (30%): `1.0 - (mean_time / max_steps)` for successful episodes
+
+## Example
+
+**Config:** `configs/task-leatherback-waypointnav.yaml`
+
+```yaml
+task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
+task_module: "leatherbacknav"
+env_scenes:
+  - nav_env_id: "waypoint-benchmark-v1"
+    nav_scene: 0
+  - nav_env_id: "waypoint-sample-v1"
+    nav_scene: 0
+seeds: [42]
+num_episodes: 1
+num_envs: 1
+log_dir: "logs/leatherback-waypointnav"
+policy_path: "default"
+```
+
+**Run:**
+
+```bash
+python scripts/evaluate.py --config configs/task-leatherback-waypointnav.yaml --headless
+```
+
+## Programmatic API
+
+```python
+from eval_nav import EvalConfig, NavigationEvaluator, EvaluationReporter
+
+# Load and run
+config = EvalConfig.from_yaml("config.yaml")
+evaluator = NavigationEvaluator(config, checkpoint_path=config.policy_path)
+results = evaluator.evaluate(policy=None)
+
+# Generate reports
+reporter = EvaluationReporter(results)
+reporter.save_json("results.json")
+reporter.save_summary("summary.txt")
+reporter.print_summary()
+
+# Access results
+print(f"Score: {results['score']:.4f}")
+print(f"Success Rate: {results['metrics']['success_rate']:.2%}")
+```
+
+## Policy Loading
+
+```yaml
+# Auto-detect from task module (looks for best_policy/best_policy.pt)
+policy_path: "default"
+
+# Explicit path
+policy_path: "/path/to/policy.pt"
+
+# Random actions
+policy_path: null
+```
+
+## Isaac Sim Options
+
+```bash
+# Headless mode
+python scripts/evaluate.py --config config.yaml --headless
+
+# Enable cameras
+python scripts/evaluate.py --config config.yaml --enable_cameras
+
+# Custom experience file
+python scripts/evaluate.py --config config.yaml --experience isaaclab.python.headless.kit
+```
+
+## Troubleshooting
+
+### Environment not found
+```bash
+cd source/task-your-nav
+pip install -e .
+```
+
+### Policy not found
+- Set `policy_path: null` to use random actions
+- Or provide explicit path to `.pt` file
 
 ## License
-
-BSD-3-Clause
-
-## Authors
-
-Nepher Team
-
+Nepher License

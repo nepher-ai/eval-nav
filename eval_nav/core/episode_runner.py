@@ -95,6 +95,8 @@ class EpisodeRunner:
                 done = False
                 success = False
                 timeout = False
+                # Initialize done_per_env for non-vectorized case (not used, but needed for _get_action signature)
+                done_per_env = []
             
             # Run episode until all environments are done or max steps reached
             all_done = False

@@ -21,13 +21,13 @@ seeds:
   - 42
 
 # Number of episodes per scene-seed combination
-num_episodes: 2
+num_episodes: 1
 
 # Maximum steps per episode (None = use environment default)
 max_episode_steps: 900
 
 # Number of parallel environments for evaluation (mandatory)
-num_envs: 2
+num_envs: 1
 
 # Scoring version (MVP supports v1 only)
 scoring_version: "v1"

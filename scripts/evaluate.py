@@ -54,7 +54,15 @@ from eval_nav import EvalConfig, EvaluationReporter, NavigationEvaluator
 
 
 def main():
-    """Main entry point for evaluation CLI."""
+    """Main entry point for evaluation CLI.
+    
+    Returns:
+        dict: Dictionary containing core evaluation results with keys:
+            - score: float (final evaluation score)
+            - log_dir: str (path to the run directory where results are saved)
+            - status: str (evaluation status)
+            - metrics: dict (aggregate metrics)
+    """
     # Load configuration
     try:
         config = EvalConfig.from_yaml(args_cli.config)
@@ -66,7 +74,10 @@ def main():
     if not config.log_dir:
         raise ValueError("log_dir must be specified in config YAML")
     
-    log_dir = Path(config.log_dir)
+    # Normalize to an absolute path for log_dir
+    log_dir = Path(config.log_dir).expanduser()
+    if not log_dir.is_absolute():
+        log_dir = (Path.cwd() / log_dir).resolve()
     log_dir.mkdir(parents=True, exist_ok=True)
     
     # Create a timestamped run directory to encapsulate all results (including numpy files)
@@ -119,18 +130,29 @@ def main():
     # Exit with error code if evaluation failed
     if results.get("status") != "SUCCESS":
         sys.exit(1)
+    
+    # Return core values for further manipulation
+    return {
+        "score": results.get("score"),
+        "log_dir": str(run_dir),
+        "status": results.get("status"),
+        "metrics": results.get("metrics"),
+    }
 
 
 if __name__ == "__main__":
     try:
         # Run the main function
-        main()
+        result = main()
+        print(f"\n[INFO] Evaluation result: {result}")
+        # If main returns a result, it can be used for further manipulation
+        # For CLI usage, we don't need to do anything with it here
     except KeyboardInterrupt:
         print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
         sys.exit(130)
     except Exception as e:
         import traceback
-        print(f"[ERROR] Evaluation failed: {e}", file=sys.stderr)
+        print(f"\n[ERROR] Evaluation failed: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
     finally:

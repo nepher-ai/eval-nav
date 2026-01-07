@@ -19,7 +19,7 @@ seeds:
   - 42
 
 # Number of episodes per scene-seed combination
-num_episodes: 5
+num_episodes: 2
 
 # Maximum steps per episode (None = use environment default)
 max_episode_steps: 900
