@@ -8,9 +8,13 @@ task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
 # Python module to import for environment registration
 task_module: "leatherbacknav"
 
-# Scenes to evaluate (from envs-nav waypoint-benchmark-v1)
-scenes:
-  - 0
+# Environment-scene combinations to evaluate
+# Each entry specifies a nav_env_id and nav_scene to evaluate
+env_scenes:
+  - nav_env_id: "waypoint-benchmark-v1"
+    nav_scene: 0
+  - nav_env_id: "waypoint-sample-v1"
+    nav_scene: 0
 
 # Random seeds for reproducibility
 seeds:
@@ -31,11 +35,6 @@ scoring_version: "v1"
 # Logging
 log_dir: "logs/leatherback-waypointnav"
 enable_logging: true
-
-# Environment-specific configuration
-env_config:
-  nav_env_id: "waypoint-benchmark-v1"
-  nav_scene: 0  # Will be overridden per scene
 
 # Timeout for entire evaluation (seconds, None = no timeout)
 timeout_seconds: null

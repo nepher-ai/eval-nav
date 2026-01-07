@@ -44,6 +44,7 @@ class EpisodeRunner:
         env: gym.Env,
         policy: Any | None,
         scene: str | int,
+        nav_env_id: str,
         seed: int,
         episode_id: int,
     ) -> EpisodeMetrics | list[EpisodeMetrics]:
@@ -148,6 +149,7 @@ class EpisodeRunner:
                             scene=scene,
                             seed=seed,
                             env_idx=env_idx,
+                            nav_env_id=nav_env_id,
                         )
                 else:
                     self.state_logger.save(
@@ -155,6 +157,7 @@ class EpisodeRunner:
                         scene=scene,
                         seed=seed,
                         env_idx=None,
+                        nav_env_id=nav_env_id,
                     )
             
             # Finalize metrics

@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 import time
+import json
+import tempfile
+import os
 from typing import Any
+from multiprocessing import Process
 
 from ..domain.config import EvalConfig
 from ..domain.errors import (
@@ -24,6 +28,19 @@ from ..utils.policy_loader import load_policy_from_checkpoint
 from .scorer import get_scorer
 
 
+def _run_env_scene_worker(config_dict: dict, env_scene_combo: dict, checkpoint_path: str | None, output_path: str) -> None:
+    """Subprocess worker to evaluate a single env-scene combination."""
+    # Build a single-scene config
+    config_dict = dict(config_dict)
+    config_dict["env_scenes"] = [env_scene_combo]
+    cfg = EvalConfig(**config_dict)
+    evaluator = NavigationEvaluator(cfg, checkpoint_path=checkpoint_path, subprocess_mode=True)
+    episodes = evaluator.run_campaign(policy=None)
+    # Persist episodes as dicts for the parent to aggregate
+    with open(output_path, "w") as f:
+        json.dump([e.to_dict() for e in episodes], f)
+
+
 class NavigationEvaluator:
     """Evaluator for IsaacLab navigation environments.
     
@@ -34,12 +51,13 @@ class NavigationEvaluator:
     - Deterministic execution
     """
     
-    def __init__(self, config: EvalConfig, checkpoint_path: str | None = None):
+    def __init__(self, config: EvalConfig, checkpoint_path: str | None = None, subprocess_mode: bool = False):
         """Initialize evaluator.
         
         Args:
             config: Evaluation configuration.
             checkpoint_path: Optional path to policy checkpoint (will be loaded lazily).
+            subprocess_mode: If True, do not spawn further subprocesses (used by worker).
         """
         config.validate()
         self.config = config
@@ -47,7 +65,7 @@ class NavigationEvaluator:
         self.start_time: float | None = None
         self.checkpoint_path = checkpoint_path
         self._policy = None  # Will be loaded lazily
-        
+        self.subprocess_mode = subprocess_mode
         # Initialize managers
         self.env_manager = EnvironmentManager(config)
         self.episode_runner = EpisodeRunner(config)
@@ -69,6 +87,10 @@ class NavigationEvaluator:
                     },
                 ) from e
             raise
+
+    def run_campaign(self, policy: Any | None) -> list[EpisodeMetrics]:
+        """Public wrapper for running the campaign (used by subprocess workers)."""
+        return self._run_campaign(policy)
     
     def evaluate(self, policy: Any | None = None) -> dict[str, Any]:
         """Run evaluation campaign.
@@ -88,7 +110,7 @@ class NavigationEvaluator:
         
         try:
             # Pre-verify that all required scenes are available
-            self.env_manager.verify_scenes_available()
+            self.env_manager.verify_scenes_available()  # type: ignore[attr-defined]
             
             # Run evaluation campaign (environments are created per scene)
             episodes = self._run_campaign(policy)
@@ -169,7 +191,7 @@ class NavigationEvaluator:
         self,
         policy: Any | None,
     ) -> list[EpisodeMetrics]:
-        """Run evaluation campaign across all scene-seed combinations.
+        """Run evaluation campaign across all environment-scene-seed combinations.
         
         Args:
             policy: Policy to evaluate (None for random, or will load from checkpoint if set).
@@ -183,10 +205,50 @@ class NavigationEvaluator:
         episodes = []
         episode_id = 0
         
-        # Iterate over all scene-seed combinations
-        for scene in self.config.scenes:
-            # Create environment for this scene (scene-specific config)
-            scene_env = self.env_manager.load_environment_for_scene(scene)
+        # Get environment-scene combinations
+        env_scene_combos = self.config.env_scenes
+
+        # If multiple envs/scenes, run each in a fresh subprocess to avoid simulator reuse hangs
+        if not self.subprocess_mode and len(env_scene_combos) > 1:
+            temp_files = []
+            processes = []
+            for combo in env_scene_combos:
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".json")
+                tmp_path = tmp.name
+                tmp.close()
+                temp_files.append(tmp_path)
+                p = Process(
+                    target=_run_env_scene_worker,
+                    args=(self.config.to_dict(), combo, self.checkpoint_path, tmp_path),
+                )
+                p.start()
+                processes.append((p, tmp_path))
+
+            for p, tmp_path in processes:
+                p.join()
+                if p.exitcode != 0:
+                    raise EvaluationRuntimeError(f"Subprocess failed for {tmp_path}")
+                with open(tmp_path, "r") as f:
+                    episode_dicts = json.load(f)
+                os.remove(tmp_path)
+                # Reconstruct EpisodeMetrics and reindex episode_id sequentially
+                for ep_dict in episode_dicts:
+                    ep = EpisodeMetrics(**ep_dict)
+                    ep.episode_id = episode_id
+                    episode_id += 1
+                    episodes.append(ep)
+
+            return episodes
+        
+        # Iterate over all environment-scene-seed combinations
+        for env_scene_combo in env_scene_combos:
+            nav_env_id = env_scene_combo["nav_env_id"]
+            nav_scene = env_scene_combo["nav_scene"]
+            
+            print(f"[INFO] Loading environment: nav_env_id={nav_env_id}, nav_scene={nav_scene}")
+            # Create environment for this nav_env_id and nav_scene
+            scene_env = self.env_manager.load_environment_for_scene(nav_env_id=nav_env_id, nav_scene=nav_scene)  # type: ignore[attr-defined]
+            print(f"[INFO] Environment ready: nav_env_id={nav_env_id}, nav_scene={nav_scene}")
             # Load policy lazily on first environment if checkpoint is provided
             if policy is None and self.checkpoint_path is not None:
                 try:
@@ -198,7 +260,7 @@ class NavigationEvaluator:
             
             try:
                 for seed in self.config.seeds:
-                    # Run episodes for this scene-seed combination
+                    # Run episodes for this env-scene-seed combination
                     for _ in range(self.config.num_episodes):
                         # Check timeout
                         if self.config.timeout_seconds:
@@ -211,7 +273,15 @@ class NavigationEvaluator:
                                 )
                         
                         # Run single episode (may return multiple metrics for vectorized environments)
-                        episode_metrics_list = self.episode_runner.run_episode(scene_env, policy, scene, seed, episode_id)
+                        # Pass nav_scene for episode identification (backward compatible)
+                        episode_metrics_list = self.episode_runner.run_episode(
+                            scene_env,
+                            policy,
+                            nav_scene,
+                            nav_env_id,
+                            seed,
+                            episode_id,
+                        )  # type: ignore[attr-defined]
                         # Handle both single EpisodeMetrics and list of EpisodeMetrics
                         if isinstance(episode_metrics_list, list):
                             for episode_metrics in episode_metrics_list:
@@ -224,6 +294,13 @@ class NavigationEvaluator:
                             episode_id += 1
             finally:
                 scene_env.close()
+                # Force release of simulator resources before next env creation
+                try:
+                    import gc
+                    del scene_env
+                    gc.collect()
+                except Exception:
+                    pass
 
         return episodes
     
@@ -234,15 +311,16 @@ class NavigationEvaluator:
             Metadata dictionary.
         """
         elapsed = time.time() - (self.start_time or time.time())
+        num_combos = len(self.config.env_scenes)
         
         return {
             "task_name": self.config.task_name,
             "scoring_version": self.config.scoring_version,
-            "scenes": self.config.scenes,
+            "env_scenes": self.config.env_scenes,
             "seeds": self.config.seeds,
             "num_episodes": self.config.num_episodes,
             "max_episode_steps": self.config.max_episode_steps,
-            "total_episodes_run": len(self.config.scenes) * len(self.config.seeds) * self.config.num_episodes,
+            "total_episodes_run": num_combos * len(self.config.seeds) * self.config.num_episodes,
             "elapsed_seconds": elapsed,
             "config": self.config.to_dict(),
         }

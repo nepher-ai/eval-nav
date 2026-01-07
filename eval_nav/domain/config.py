@@ -38,8 +38,10 @@ class EvalConfig:
     If None, the evaluator will attempt to infer from task_name."""
     
     # Scene/environment selection
-    scenes: list[str | int] = field(default_factory=lambda: [0])
-    """List of scene IDs to evaluate. Can be strings or integers."""
+    env_scenes: list[dict[str, Any]] = field(default_factory=list)
+    """List of environment-scene combinations to evaluate.
+    Each dict must have 'nav_env_id' and 'nav_scene' keys.
+    Example: [{"nav_env_id": "waypoint-benchmark-v1", "nav_scene": 0}, {"nav_env_id": "waypoint-sample-v1", "nav_scene": 0}]"""
     
     # Reproducibility
     seeds: list[int] = field(default_factory=lambda: [42])
@@ -56,9 +58,9 @@ class EvalConfig:
     scoring_version: str = "v1"
     """Scoring version to use. MVP supports 'v1' only."""
     
-    # Environment-specific config
+    # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)
-    """Additional environment configuration (e.g., nav_env_id, nav_scene)."""
+    """Additional environment configuration (optional, for non-scene-specific parameters)."""
     
     # Timeout
     timeout_seconds: float | None = None
@@ -102,7 +104,7 @@ class EvalConfig:
         return {
             "task_name": self.task_name,
             "task_module": self.task_module,
-            "scenes": self.scenes,
+            "env_scenes": self.env_scenes,
             "seeds": self.seeds,
             "num_episodes": self.num_episodes,
             "max_episode_steps": self.max_episode_steps,
@@ -120,8 +122,16 @@ class EvalConfig:
         if not self.task_name:
             raise ValueError("task_name cannot be empty")
         
-        if not self.scenes:
-            raise ValueError("scenes list cannot be empty")
+        # Validate env_scenes
+        if not self.env_scenes:
+            raise ValueError("env_scenes list cannot be empty")
+        for i, env_scene in enumerate(self.env_scenes):
+            if not isinstance(env_scene, dict):
+                raise ValueError(f"env_scenes[{i}] must be a dictionary")
+            if "nav_env_id" not in env_scene:
+                raise ValueError(f"env_scenes[{i}] must have 'nav_env_id' key")
+            if "nav_scene" not in env_scene:
+                raise ValueError(f"env_scenes[{i}] must have 'nav_scene' key")
         
         if not self.seeds:
             raise ValueError("seeds list cannot be empty")

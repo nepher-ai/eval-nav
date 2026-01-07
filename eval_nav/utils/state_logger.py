@@ -122,7 +122,14 @@ class StateLogger:
             else:
                 self._state_buffers[key][field_name].append(field_value)
     
-    def save(self, episode_id: int, scene: str | int, seed: int, env_idx: int | None = None) -> Path | None:
+    def save(
+        self,
+        episode_id: int,
+        scene: str | int,
+        seed: int,
+        env_idx: int | None = None,
+        nav_env_id: str | None = None,
+    ) -> Path | None:
         """Save logged state data to .npy file.
         
         Args:
@@ -152,8 +159,9 @@ class StateLogger:
         # Get metadata for this episode/env (stored once per episode)
         metadata = self._metadata_buffers.get(key)
 
-        # Create filename
-        filename = f"episode_{episode_id}_scene_{scene}_seed_{seed}_env_{env_idx}.npy"
+        # Create filename (short but informative)
+        nav_env_part = f"{nav_env_id}_" if nav_env_id is not None else ""
+        filename = f"ep{episode_id}_{nav_env_part}sc{scene}_sd{seed}_e{env_idx}.npy"
         filepath = self.log_dir / filename
         
         # Save as .npy file with metadata included
