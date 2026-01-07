@@ -57,7 +57,7 @@ simulation_app = app_launcher.app
 
 """Rest everything follows."""
 
-from nav_eval import EvalConfig, EvaluationReporter, NavigationEvaluator
+from eval_nav import EvalConfig, EvaluationReporter, NavigationEvaluator
 
 
 def main():

@@ -64,7 +64,7 @@ This framework provides standardized, reproducible evaluation for navigation tas
 ## Installation
 
 ```bash
-cd source/nav-eval
+cd source/eval-nav
 pip install -e .
 ```
 
@@ -203,8 +203,8 @@ The following are **not** included in the MVP (intentionally kept lean):
 ### Project Structure
 
 ```
-nav-eval/
-├── nav_eval/
+eval-nav/
+├── eval_nav/
 │   ├── __init__.py
 │   ├── config.py          # Configuration system
 │   ├── evaluator.py       # Core evaluation runner

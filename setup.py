@@ -3,12 +3,12 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Setup script for nav-eval package."""
+"""Setup script for eval-nav package."""
 
 from setuptools import find_packages, setup
 
 setup(
-    name="nav-eval",
+    name="eval-nav",
     version="0.1.0",
     description="Navigation Evaluation Framework for IsaacLab",
     author="Nepher Team",
@@ -23,7 +23,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "nav-eval=nav_eval.scripts.evaluate:main",
+            "eval-nav=eval_nav.scripts.evaluate:main",
         ],
     },
 )

@@ -172,18 +172,6 @@ class StateLogger:
         del self._state_buffers[key]
         if key in self._metadata_buffers:
             del self._metadata_buffers[key]
-        
-        print(f"\n[INFO] Loading state log from {filepath}")
-        try:
-            loaded_data = np.load(filepath, allow_pickle=True)
-            if isinstance(loaded_data, np.ndarray) and loaded_data.dtype.names is None:
-                # Legacy format (just state array)
-                print(f"\n[INFO] State log loaded (legacy format): {loaded_data}")
-            else:
-                # New format with metadata
-                print(f"\n[INFO] State log loaded: state shape={loaded_data.item().get('state', {}).shape if hasattr(loaded_data.item(), 'get') else 'N/A'}, metadata={loaded_data.item().get('metadata', None) if hasattr(loaded_data.item(), 'get') else 'N/A'}")
-        except Exception as e:
-            print(f"\n[ERROR] Error loading state log: {e}")
 
         return filepath
     
