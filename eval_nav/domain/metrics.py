@@ -21,6 +21,8 @@ class EpisodeMetrics:
     success: bool
     steps: int
     timeout: bool
+    nav_env_id: str | None = None
+    """Navigation environment ID."""
     completion_time: float | None = None
     """Completion time in seconds (only for successful episodes)."""
     
@@ -33,6 +35,7 @@ class EpisodeMetrics:
             "success": self.success,
             "steps": self.steps,
             "timeout": self.timeout,
+            "nav_env_id": self.nav_env_id,
             "completion_time": self.completion_time,
         }
 

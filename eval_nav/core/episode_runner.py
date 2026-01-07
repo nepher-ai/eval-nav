@@ -163,12 +163,12 @@ class EpisodeRunner:
             # Finalize metrics
             if is_vectorized:
                 return self._finalize_vectorized_metrics(
-                    env, info, scene, seed, episode_id, steps_per_env,
+                    env, info, scene, nav_env_id, seed, episode_id, steps_per_env,
                     success_per_env, timeout_per_env, completion_time_per_env, num_envs
                 )
             else:
                 return self._finalize_single_metrics(
-                    env, info, scene, seed, episode_id, steps, success, timeout
+                    env, info, scene, nav_env_id, seed, episode_id, steps, success, timeout
                 )
             
         except Exception as e:
@@ -401,6 +401,7 @@ class EpisodeRunner:
         env: gym.Env,
         info: dict[str, Any],
         scene: str | int,
+        nav_env_id: str,
         seed: int,
         episode_id: int,
         steps_per_env: list[int],
@@ -415,6 +416,7 @@ class EpisodeRunner:
             env: Gymnasium environment.
             info: Info dictionary from step.
             scene: Scene ID.
+            nav_env_id: Navigation environment ID.
             seed: Random seed.
             episode_id: Base episode ID.
             steps_per_env: List of step counts per environment.
@@ -451,6 +453,7 @@ class EpisodeRunner:
                 success=success_per_env[env_idx],
                 steps=steps_per_env[env_idx],
                 timeout=timeout_per_env[env_idx],
+                nav_env_id=nav_env_id,
                 completion_time=completion_time_per_env[env_idx],
             )
             for env_idx in range(num_envs)
@@ -461,6 +464,7 @@ class EpisodeRunner:
         env: gym.Env,
         info: dict[str, Any],
         scene: str | int,
+        nav_env_id: str,
         seed: int,
         episode_id: int,
         steps: int,
@@ -473,6 +477,7 @@ class EpisodeRunner:
             env: Gymnasium environment.
             info: Info dictionary from step.
             scene: Scene ID.
+            nav_env_id: Navigation environment ID.
             seed: Random seed.
             episode_id: Episode ID.
             steps: Step count.
@@ -506,6 +511,7 @@ class EpisodeRunner:
             success=success,
             steps=steps,
             timeout=timeout,
+            nav_env_id=nav_env_id,
             completion_time=completion_time,
         )
 
