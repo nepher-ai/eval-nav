@@ -128,7 +128,7 @@ class StateLogger:
         scene: str | int,
         seed: int,
         env_idx: int | None = None,
-        nav_env_id: str | None = None,
+        env_id: str | None = None,
     ) -> Path | None:
         """Save logged state data to .npy file.
         
@@ -160,12 +160,12 @@ class StateLogger:
         metadata = self._metadata_buffers.get(key)
 
         # Create data subdirectory organized by scene
-        data_dir = self.log_dir / "data" / f"env_{nav_env_id}"
+        data_dir = self.log_dir / "data" / f"env_{env_id}"
         data_dir.mkdir(parents=True, exist_ok=True)
         
         # Create filename (short but informative)
-        nav_env_part = f"{nav_env_id}_" if nav_env_id is not None else ""
-        filename = f"ep{episode_id}_{nav_env_part}sc{scene}_sd{seed}_e{env_idx}.npy"
+        env_id_part = f"{env_id}_" if env_id is not None else ""
+        filename = f"ep{episode_id}_{env_id_part}sc{scene}_sd{seed}_e{env_idx}.npy"
         filepath = data_dir / filename
         
         # Save as .npy file with metadata included

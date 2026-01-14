@@ -28,7 +28,7 @@ class EvalConfig:
     
     # Environment selection
     task_name: str
-    """Gymnasium task name (e.g., 'Nepher-Animal-WaypointNav-Envs-Play-v0')."""
+    """Gymnasium task name (e.g., 'Nepher-Animal-WaypointNav-Envhub-Play-v0')."""
     
     num_envs: int
     """Number of parallel environments to use for evaluation (mandatory)."""
@@ -40,8 +40,8 @@ class EvalConfig:
     # Scene/environment selection
     env_scenes: list[dict[str, Any]] = field(default_factory=list)
     """List of environment-scene combinations to evaluate.
-    Each dict must have 'nav_env_id' and 'nav_scene' keys.
-    Example: [{"nav_env_id": "waypoint-benchmark-v1", "nav_scene": 0}, {"nav_env_id": "waypoint-sample-v1", "nav_scene": 0}]"""
+    Each dict must have 'env_id' and 'scene' keys.
+    Example: [{"env_id": "waypoint-benchmark-v1", "scene": 0}, {"env_id": "waypoint-sample-v1", "scene": 0}]"""
     
     # Reproducibility
     seeds: list[int] = field(default_factory=lambda: [42])
@@ -128,10 +128,10 @@ class EvalConfig:
         for i, env_scene in enumerate(self.env_scenes):
             if not isinstance(env_scene, dict):
                 raise ValueError(f"env_scenes[{i}] must be a dictionary")
-            if "nav_env_id" not in env_scene:
-                raise ValueError(f"env_scenes[{i}] must have 'nav_env_id' key")
-            if "nav_scene" not in env_scene:
-                raise ValueError(f"env_scenes[{i}] must have 'nav_scene' key")
+            if "env_id" not in env_scene:
+                raise ValueError(f"env_scenes[{i}] must have 'env_id' key")
+            if "scene" not in env_scene:
+                raise ValueError(f"env_scenes[{i}] must have 'scene' key")
         
         if not self.seeds:
             raise ValueError("seeds list cannot be empty")

@@ -4,38 +4,38 @@ Standardized, reproducible evaluation for IsaacLab navigation environments.
 
 ## Overview
 
-`eval-nav` evaluates trained navigation policies across multiple envs-nav scenes with:
+`eval-nav` evaluates trained navigation policies across multiple envhub scenes with:
 
 - **Deterministic execution**: Fixed seeds and reproducible results
 - **V1 scoring**: Success rate (70%) + completion time (30%)
-- **Multi-scene evaluation**: Test across different `nav_env_id` and `nav_scene` combinations
+- **Multi-scene evaluation**: Test across different `env_id` and `scene` combinations
 - **Structured output**: JSON results, text summaries, and per-episode state logs
 
 ## Requirements
 
 - IsaacLab 2.3+
 - Isaac Sim 5.1+
-- envs-nav installed (`pip install -e source/envs-nav`)
-- Target environments pre-downloaded (via envs-nav)
+- envhub (nepher) installed (`pip install -e source/envhub`)
+- Target environments pre-downloaded (via envhub)
 
 ## Installation
 
 ```bash
-# 1. Install envs-nav (required for navigation environments)
-# See: source/envs-nav/README.md
-cd source/envs-nav
+# 1. Install envhub (nepher) (required for navigation environments)
+# See: source/envhub/README.md
+cd source/envhub
 pip install -e .
 
 # 2. Pre-download target environments
-# See available environments: envs-nav list
-envs-nav download waypoint-benchmark-v1 waypoint-sample-v1
+# See available environments: nepher list
+nepher download waypoint-benchmark-v1 waypoint-sample-v1
 
 # 3. Install eval-nav
 cd source/eval-nav
 pip install -e .
 ```
 
-For envs-nav setup and CLI usage, see [envs-nav README](https://github.com/nepher-ai/envs-nav).
+For envhub (nepher) setup and CLI usage, see [envhub README](https://github.com/nepher-ai/envhub).
 
 ## Quick Start
 
@@ -43,14 +43,14 @@ For envs-nav setup and CLI usage, see [envs-nav README](https://github.com/nephe
 
 ```yaml
 # config.yaml
-task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
+task_name: "Nepher-Leatherback-WaypointNav-Envhub-Play-v0"
 task_module: "leatherbacknav"
 
 env_scenes:
-  - nav_env_id: "waypoint-benchmark-v1"
-    nav_scene: 0
-  - nav_env_id: "waypoint-sample-v1"
-    nav_scene: 0
+  - env_id: "waypoint-benchmark-v1"
+    scene: 0
+  - env_id: "waypoint-sample-v1"
+    scene: 0
 
 seeds: [42]
 num_episodes: 10
@@ -89,8 +89,8 @@ task_module: "modulename"             # Import module for env registration
 num_envs: 10                          # Parallel environments
 log_dir: "logs/eval"                  # Output directory
 env_scenes:                           # Scene combinations
-  - nav_env_id: "waypoint-benchmark-v1"
-    nav_scene: 0
+  - env_id: "waypoint-benchmark-v1"
+    scene: 0
 ```
 
 ### Optional
@@ -153,13 +153,13 @@ score = 0.7 × success_rate + 0.3 × time_component
 **Config:** `configs/task-leatherback-waypointnav.yaml`
 
 ```yaml
-task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
+task_name: "Nepher-Leatherback-WaypointNav-Envhub-Play-v0"
 task_module: "leatherbacknav"
 env_scenes:
-  - nav_env_id: "waypoint-benchmark-v1"
-    nav_scene: 0
-  - nav_env_id: "waypoint-sample-v1"
-    nav_scene: 0
+  - env_id: "waypoint-benchmark-v1"
+    scene: 0
+  - env_id: "waypoint-sample-v1"
+    scene: 0
 seeds: [42]
 num_episodes: 1
 num_envs: 1

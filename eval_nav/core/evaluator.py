@@ -242,13 +242,13 @@ class NavigationEvaluator:
         
         # Iterate over all environment-scene-seed combinations
         for env_scene_combo in env_scene_combos:
-            nav_env_id = env_scene_combo["nav_env_id"]
-            nav_scene = env_scene_combo["nav_scene"]
+            env_id = env_scene_combo["env_id"]
+            scene = env_scene_combo["scene"]
             
-            print(f"[INFO] Loading environment: nav_env_id={nav_env_id}, nav_scene={nav_scene}")
-            # Create environment for this nav_env_id and nav_scene
-            scene_env = self.env_manager.load_environment_for_scene(nav_env_id=nav_env_id, nav_scene=nav_scene)  # type: ignore[attr-defined]
-            print(f"[INFO] Environment ready: nav_env_id={nav_env_id}, nav_scene={nav_scene}")
+            print(f"[INFO] Loading environment: env_id={env_id}, scene={scene}")
+            # Create environment for this env_id and scene
+            scene_env = self.env_manager.load_environment_for_scene(env_id=env_id, scene=scene)  # type: ignore[attr-defined]
+            print(f"[INFO] Environment ready: env_id={env_id}, scene={scene}")
             # Load policy lazily on first environment if checkpoint is provided
             if policy is None and self.checkpoint_path is not None:
                 try:
@@ -273,12 +273,12 @@ class NavigationEvaluator:
                                 )
                         
                         # Run single episode (may return multiple metrics for vectorized environments)
-                        # Pass nav_scene for episode identification (backward compatible)
+                        # Pass scene for episode identification
                         episode_metrics_list = self.episode_runner.run_episode(
                             scene_env,
                             policy,
-                            nav_scene,
-                            nav_env_id,
+                            scene,
+                            env_id,
                             seed,
                             episode_id,
                         )  # type: ignore[attr-defined]
@@ -313,9 +313,16 @@ class NavigationEvaluator:
         elapsed = time.time() - (self.start_time or time.time())
         num_combos = len(self.config.env_scenes)
         
+        # Format scenes as human-readable strings
+        scenes = [
+            f"{combo['env_id']}:{combo['scene']}"
+            for combo in self.config.env_scenes
+        ]
+        
         return {
             "task_name": self.config.task_name,
             "scoring_version": self.config.scoring_version,
+            "scenes": scenes,
             "env_scenes": self.config.env_scenes,
             "seeds": self.config.seeds,
             "num_episodes": self.config.num_episodes,

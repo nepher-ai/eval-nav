@@ -1,20 +1,20 @@
 # Evaluation configuration for task-leatherback-waypointnav
 # 
 # This config evaluates the Leatherback waypoint navigation environment
-# using envs-nav scenes for standardized evaluation.
+# using envhub scenes for standardized evaluation.
 
-task_name: "Nepher-Leatherback-WaypointNav-Envs-Play-v0"
+task_name: "Nepher-Leatherback-WaypointNav-Envhub-Play-v0"
 
 # Python module to import for environment registration
 task_module: "leatherbacknav"
 
 # Environment-scene combinations to evaluate
-# Each entry specifies a nav_env_id and nav_scene to evaluate
+# Each entry specifies an env_id and scene to evaluate
 env_scenes:
-  - nav_env_id: "waypoint-benchmark-v1"
-    nav_scene: 0
-  - nav_env_id: "waypoint-sample-v1"
-    nav_scene: 0
+  - env_id: "waypoint-benchmark-v1"
+    scene: 0
+  - env_id: "waypoint-sample-v1"
+    scene: 0
 
 # Random seeds for reproducibility
 seeds:

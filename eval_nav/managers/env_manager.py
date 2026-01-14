@@ -107,38 +107,31 @@ class EnvironmentManager:
         # Get environment-scene combinations
         env_scenes = self.config.env_scenes
         
-        # Group by nav_env_id to verify each environment once
+        # Group by env_id to verify each environment once
         env_scenes_map: dict[str, list[Any]] = {}
         for env_scene in env_scenes:
-            nav_env_id = env_scene["nav_env_id"]
-            nav_scene = env_scene["nav_scene"]
-            if nav_env_id not in env_scenes_map:
-                env_scenes_map[nav_env_id] = []
-            env_scenes_map[nav_env_id].append(nav_scene)
+            env_id = env_scene["env_id"]
+            scene = env_scene["scene"]
+            if env_id not in env_scenes_map:
+                env_scenes_map[env_id] = []
+            env_scenes_map[env_id].append(scene)
         
         # Verify each environment
         all_missing_scenes = []
-        for nav_env_id, scenes in env_scenes_map.items():
+        for env_id, scenes in env_scenes_map.items():
             try:
-                # Load environment (this will download if needed, not just from cache)
-                from envs_nav.lib.loader import load_env
-                env = load_env(nav_env_id, cache_only=False)
+                # Load environment from envhub (nepher) cache
+                from nepher import load_env
+                env = load_env(env_id, category="navigation")
                 
-                # Check available scenes
-                if env.manifest is None:
-                    raise EnvironmentError(
-                        f"Environment '{nav_env_id}' has no manifest",
-                        details={"nav_env_id": nav_env_id, "error_type": "ManifestError"},
-                    )
-                
-                # Determine available scenes based on manifest type
+                # Determine available scenes based on environment type
                 # Use resolved scenes (env.scenes/env.preset_scenes) to match what loader checks
-                if env.manifest.type == "preset":
+                if env.type == "preset":
                     available_scenes = list(range(len(env.preset_scenes)))
-                    scene_list = env.manifest.preset_scenes  # Use manifest for scene_id lookup
+                    scene_list = env.preset_scenes  # Use preset_scenes for scene_id lookup
                 else:
                     available_scenes = list(range(len(env.scenes)))
-                    scene_list = env.manifest.scenes  # Use manifest for scene_id lookup
+                    scene_list = env.scenes  # Use scenes for scene_id lookup
                 
                 # Check each required scene for this environment
                 missing_scenes = []
@@ -147,19 +140,19 @@ class EnvironmentManager:
                         if scene not in available_scenes:
                             missing_scenes.append(f"Scene index {scene} (available: 0-{len(available_scenes)-1})")
                     elif isinstance(scene, str):
-                        # Try to find scene by ID
+                        # Try to find scene by ID (Scene.name is the scene_id)
                         scene_found = False
                         for s in scene_list:
-                            if s.scene_id.lower() == scene.lower():
+                            if s.name.lower() == scene.lower():
                                 scene_found = True
                                 break
                         if not scene_found:
-                            available_ids = [s.scene_id for s in scene_list]
+                            available_ids = [s.name for s in scene_list]
                             missing_scenes.append(f"Scene ID '{scene}' (available: {available_ids})")
                 
                 if missing_scenes:
                     all_missing_scenes.append({
-                        "nav_env_id": nav_env_id,
+                        "env_id": env_id,
                         "missing_scenes": missing_scenes,
                         "available_scenes": available_scenes,
                     })
@@ -170,8 +163,8 @@ class EnvironmentManager:
             except Exception as e:
                 # Wrap other errors
                 raise EnvironmentError(
-                    f"Failed to verify scenes for environment '{nav_env_id}': {str(e)}",
-                    details={"nav_env_id": nav_env_id, "error_type": type(e).__name__},
+                    f"Failed to verify scenes for environment '{env_id}': {str(e)}",
+                    details={"env_id": env_id, "error_type": type(e).__name__},
                 ) from e
         
         if all_missing_scenes:
@@ -179,7 +172,7 @@ class EnvironmentManager:
             details_list = []
             for error_info in all_missing_scenes:
                 error_messages.append(
-                    f"Environment '{error_info['nav_env_id']}' is missing required scenes: "
+                    f"Environment '{error_info['env_id']}' is missing required scenes: "
                     f"{', '.join(error_info['missing_scenes'])}. "
                     f"Total scenes available: {len(error_info['available_scenes'])}"
                 )
@@ -193,12 +186,12 @@ class EnvironmentManager:
                 },
             )
     
-    def build_env_cfg(self, nav_env_id: str, nav_scene: str | int) -> Any:
+    def build_env_cfg(self, env_id: str, scene: str | int) -> Any:
         """Build environment configuration object.
         
         Args:
-            nav_env_id: Navigation environment ID to use.
-            nav_scene: Scene ID to use.
+            env_id: Environment ID to use.
+            scene: Scene ID to use.
             
         Returns:
             Environment configuration object.
@@ -224,12 +217,13 @@ class EnvironmentManager:
         # Get env_config overrides from config (for additional parameters)
         env_config = self.config.env_config.copy() if self.config.env_config else {}
         
-        # Set nav_env_id and nav_scene (required)
-        env_config["nav_env_id"] = nav_env_id
-        env_config["nav_scene"] = nav_scene
+        # Set env_id and scene_id (required)
+        # Note: scene_id is used to avoid conflict with base class 'scene' field
+        env_config["env_id"] = env_id
+        env_config["scene_id"] = scene
         
         # Instantiate config class with overrides
-        # The config class will handle nav_env_id and nav_scene in its __post_init__
+        # The config class will handle env_id and scene in its __post_init__
         cfg = cfg_class(**env_config)
         
         # Set num_envs for evaluation (mandatory, must be set after instantiation on scene.num_envs)
@@ -238,12 +232,12 @@ class EnvironmentManager:
         
         return cfg
     
-    def load_environment_for_scene(self, nav_env_id: str, nav_scene: str | int) -> gym.Env:
+    def load_environment_for_scene(self, env_id: str, scene: str | int) -> gym.Env:
         """Load environment configured for a specific scene.
         
         Args:
-            nav_env_id: Navigation environment ID.
-            nav_scene: Scene ID.
+            env_id: Environment ID.
+            scene: Scene ID.
             
         Returns:
             Initialized Gymnasium environment for the scene (wrapped with EvalCompatEnv if available).
@@ -252,14 +246,14 @@ class EnvironmentManager:
             EnvironmentError: If environment cannot be loaded.
         """
         try:
-            print(f"[INFO] Building cfg for nav_env_id={nav_env_id}, nav_scene={nav_scene}")
+            print(f"[INFO] Building cfg for env_id={env_id}, scene={scene}")
             # Build environment config for this scene
             env_kwargs = {}
-            cfg = self.build_env_cfg(nav_env_id=nav_env_id, nav_scene=nav_scene)
+            cfg = self.build_env_cfg(env_id=env_id, scene=scene)
             if cfg is not None:
                 env_kwargs["cfg"] = cfg
             
-            print(f"[INFO] Creating gym env {self.config.task_name} with cfg (nav_env_id={nav_env_id}, nav_scene={nav_scene})")
+            print(f"[INFO] Creating gym env {self.config.task_name} with cfg (env_id={env_id}, scene={scene})")
             # Create environment
             env = gym.make(self.config.task_name, **env_kwargs)
             
@@ -284,11 +278,11 @@ class EnvironmentManager:
             
         except Exception as e:
             raise EnvironmentError(
-                f"Failed to load environment '{self.config.task_name}' for nav_env_id={nav_env_id}, nav_scene={nav_scene}: {str(e)}",
+                f"Failed to load environment '{self.config.task_name}' for env_id={env_id}, scene={scene}: {str(e)}",
                 details={
                     "task_name": self.config.task_name,
-                    "nav_env_id": nav_env_id,
-                    "nav_scene": nav_scene,
+                    "env_id": env_id,
+                    "scene": scene,
                     "error_type": type(e).__name__,
                 },
             ) from e
