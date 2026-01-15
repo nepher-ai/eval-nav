@@ -1,15 +1,15 @@
-# eval-nav: Navigation Evaluation Framework for IsaacLab
+# Nepher Navigation Evaluation Framework
 
-Standardized, reproducible evaluation for IsaacLab navigation environments.
+Standardized, reproducible evaluation framework for IsaacLab navigation environments.
 
-## Overview
+## Purpose
 
-`eval-nav` evaluates trained navigation policies across multiple envhub scenes with:
+This public evaluation repository is required for the **Nepher subnet** (Bittensor Subnet 49). Validators clone this repository to evaluate miner solutions during tournament evaluation phases. It ensures:
 
-- **Deterministic execution**: Fixed seeds and reproducible results
-- **V1 scoring**: Success rate (70%) + completion time (30%)
-- **Multi-scene evaluation**: Test across different `env_id` and `scene` combinations
-- **Structured output**: JSON results, text summaries, and per-episode state logs
+- **Standardized scoring**: Consistent evaluation across all validators
+- **Reproducible results**: Fixed seeds and deterministic execution
+- **Public transparency**: Open-source evaluation logic for miner verification
+- **EnvHub integration**: Evaluates across standardized Nepher EnvHub benchmark environments
 
 ## Requirements
 
@@ -41,6 +41,8 @@ For envhub (nepher) setup and CLI usage, see [envhub README](https://github.com/
 
 ### 1. Create Configuration
 
+See [config examples](configs/) for reference configurations.
+
 ```yaml
 # config.yaml
 task_name: "Nepher-Leatherback-WaypointNav-Envhub-Play-v0"
@@ -56,7 +58,7 @@ seeds: [42]
 num_episodes: 10
 max_episode_steps: 900
 num_envs: 10
-scoring_version: "v1"
+scoring_version: "v1"  # Scoring version (see config examples)
 
 log_dir: "logs/my-eval"
 enable_logging: true
@@ -77,100 +79,6 @@ logs/my-eval/eval_run_YYYYMMDD_HHMMSS/
 ├── summary.txt     # Human-readable summary
 ├── config.yaml     # Evaluation configuration
 └── data/          # Episode state logs (.npy)
-```
-
-## Configuration Reference
-
-### Required
-
-```yaml
-task_name: "Nepher-Task-Name-v0"      # Gymnasium task ID
-task_module: "modulename"             # Import module for env registration
-num_envs: 10                          # Parallel environments
-log_dir: "logs/eval"                  # Output directory
-env_scenes:                           # Scene combinations
-  - env_id: "waypoint-benchmark-v1"
-    scene: 0
-```
-
-### Optional
-
-```yaml
-seeds: [42]                           # Random seeds (default: [42])
-num_episodes: 10                      # Episodes per scene-seed (default: 10)
-max_episode_steps: 900                # Max steps per episode (default: env default)
-scoring_version: "v1"                 # Scoring version (default: "v1")
-timeout_seconds: null                 # Evaluation timeout (default: none)
-enable_logging: false                 # Save episode states (default: false)
-policy_path: "default"                # Policy checkpoint path (default: none)
-                                      # "default" = auto-detect from task module
-                                      # null = random actions
-```
-
-**Total episodes:** `len(env_scenes) × len(seeds) × num_episodes`
-
-## Output Format
-
-### results.json
-
-```json
-{
-  "status": "SUCCESS",
-  "score": 0.9537,
-  "metrics": {
-    "total_episodes": 20,
-    "successful_episodes": 19,
-    "success_rate": 0.95,
-    "mean_completion_time": 245.3,
-    "std_completion_time": 45.2
-  },
-  "episodes": [...],
-  "metadata": {...}
-}
-```
-
-### summary.txt
-
-```
-Navigation Evaluation Summary
-Status: SUCCESS
-Final Score: 0.9537
-Success Rate: 95.00%
-Mean Completion Time: 245.30 steps
-```
-
-## Scoring (V1)
-
-```
-score = 0.7 × success_rate + 0.3 × time_component
-```
-
-- **Success rate** (70%): Fraction of episodes reaching goal
-- **Time component** (30%): `1.0 - (mean_time / max_steps)` for successful episodes
-
-## Example
-
-**Config:** `configs/task-leatherback-waypointnav.yaml`
-
-```yaml
-task_name: "Nepher-Leatherback-WaypointNav-Envhub-Play-v0"
-task_module: "leatherbacknav"
-env_scenes:
-  - env_id: "waypoint-benchmark-v1"
-    scene: 0
-  - env_id: "waypoint-sample-v1"
-    scene: 0
-seeds: [42]
-num_episodes: 1
-num_envs: 1
-log_dir: "logs/leatherback-waypointnav"
-policy_path: "default"
-```
-
-**Run:**
-
-```bash
-python scripts/evaluate.py --config configs/task-leatherback-waypointnav.yaml --headless
 ```
 
 ## Programmatic API
@@ -194,23 +102,10 @@ print(f"Score: {results['score']:.4f}")
 print(f"Success Rate: {results['metrics']['success_rate']:.2%}")
 ```
 
-## Policy Loading
-
-```yaml
-# Auto-detect from task module (looks for best_policy/best_policy.pt)
-policy_path: "default"
-
-# Explicit path
-policy_path: "/path/to/policy.pt"
-
-# Random actions
-policy_path: null
-```
-
 ## Isaac Sim Options
 
 ```bash
-# Headless mode
+# Headless mode (default for validators)
 python scripts/evaluate.py --config config.yaml --headless
 
 # Enable cameras
@@ -222,15 +117,16 @@ python scripts/evaluate.py --config config.yaml --experience isaaclab.python.hea
 
 ## Troubleshooting
 
-### Environment not found
+**Environment not found:**
 ```bash
 cd source/task-your-nav
 pip install -e .
 ```
 
-### Policy not found
+**Policy not found:**
 - Set `policy_path: null` to use random actions
 - Or provide explicit path to `.pt` file
 
 ## License
+
 Nepher License
