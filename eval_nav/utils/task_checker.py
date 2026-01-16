@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Nepher Team
 # All rights reserved.
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: Proprietary
 
 """Task status checking utilities for navigation evaluation.
 

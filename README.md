@@ -129,4 +129,10 @@ pip install -e .
 
 ## License
 
-Nepher License
+This project is proprietary software. See [LICENSE](LICENSE) for details.
+
+**Copyright (c) 2025, Nepher Team. All rights reserved.**
+
+Unauthorized use, copying, modification, distribution, or exploitation of this software
+is strictly prohibited. This software is licensed solely for use in connection with
+the Nepher subnet (Bittensor Subnet 49) evaluation framework.

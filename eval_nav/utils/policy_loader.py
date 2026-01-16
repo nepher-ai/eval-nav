@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Nepher Team
 # All rights reserved.
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: Proprietary
 
 """Policy loading utilities for navigation evaluation."""
 

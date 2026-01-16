@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Nepher Team
 # All rights reserved.
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: Proprietary
 
 """Reporting and output generation for evaluation results."""
 

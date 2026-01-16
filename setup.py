@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Nepher Team
 # All rights reserved.
 #
-# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: Proprietary
 
 """Setup script for eval-nav package."""
 
@@ -12,7 +12,7 @@ setup(
     version="0.1.0",
     description="Navigation Evaluation Framework for IsaacLab",
     author="Nepher Team",
-    license="BSD-3-Clause",
+    license="Proprietary",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[

@@ -1,0 +1,45 @@
+PROPRIETARY LICENSE - ALL RIGHTS RESERVED
+
+Copyright (c) 2025, Nepher Team
+All rights reserved.
+
+NOTICE: This software and associated documentation files (the "Software") are the
+proprietary and confidential property of Nepher Team. Unauthorized use, copying,
+modification, distribution, or exploitation of this Software, via any medium or
+method, is strictly prohibited and may result in severe civil and criminal penalties.
+
+LICENSE GRANT:
+This Software is licensed, not sold, to you solely for use in connection with
+the Nepher subnet (Bittensor Subnet 49) evaluation framework. You are granted
+a limited, non-exclusive, non-transferable, revocable license to use this Software
+strictly for the following purposes:
+
+1. Evaluation of miner solutions within the Nepher subnet ecosystem
+2. Validator operations within the Nepher subnet network
+3. Research and development activities directly related to the Nepher subnet
+
+RESTRICTIONS:
+You MAY NOT:
+- Use this Software for any commercial purpose outside of the Nepher subnet
+- Modify, adapt, or create derivative works except as necessary for Nepher subnet operations
+- Distribute, sublicense, rent, lease, or otherwise transfer the Software to third parties
+- Reverse engineer, decompile, or disassemble the Software
+- Remove or alter any proprietary notices or labels on the Software
+- Use this Software to compete with or create competing evaluation frameworks
+
+TERMINATION:
+This license is effective until terminated. Your rights under this license will
+terminate automatically without notice if you fail to comply with any of its terms.
+Upon termination, you must destroy all copies of the Software and cease all use.
+
+DISCLAIMER:
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries or permission requests, please contact:
+Nepher Team
+
