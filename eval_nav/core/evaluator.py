@@ -7,19 +7,20 @@
 
 from __future__ import annotations
 
-import time
 import json
-import tempfile
 import os
-from typing import Any
+import sys
+import tempfile
+import time
 from multiprocessing import Process
+from typing import Any
 
 from ..domain.config import EvalConfig
 from ..domain.errors import (
     EnvironmentError,
     EvaluationRuntimeError,
     EvaluationStatus,
-    TimeoutError,
+    EvaluationTimeoutError,
 )
 from ..domain.metrics import AggregateMetrics, EpisodeMetrics
 from ..managers.env_manager import EnvironmentManager
@@ -29,14 +30,23 @@ from .scorer import get_scorer
 
 
 def _run_env_scene_worker(config_dict: dict, env_scene_combo: dict, checkpoint_path: str | None, output_path: str) -> None:
-    """Subprocess worker to evaluate a single env-scene combination."""
-    # Build a single-scene config
+    """Subprocess worker to evaluate a single env-scene combination.
+    
+    Args:
+        config_dict: Configuration dictionary.
+        env_scene_combo: Environment-scene combination to evaluate.
+        checkpoint_path: Optional path to policy checkpoint.
+        output_path: Path to save episode results as JSON.
+    """
+    # Import here to avoid circular imports and ensure proper initialization in subprocess
+    from ..domain.config import EvalConfig
+    from .evaluator import NavigationEvaluator
+    
     config_dict = dict(config_dict)
     config_dict["env_scenes"] = [env_scene_combo]
     cfg = EvalConfig(**config_dict)
     evaluator = NavigationEvaluator(cfg, checkpoint_path=checkpoint_path, subprocess_mode=True)
     episodes = evaluator.run_campaign(policy=None)
-    # Persist episodes as dicts for the parent to aggregate
     with open(output_path, "w") as f:
         json.dump([e.to_dict() for e in episodes], f)
 
@@ -66,17 +76,13 @@ class NavigationEvaluator:
         self.checkpoint_path = checkpoint_path
         self._policy = None  # Will be loaded lazily
         self.subprocess_mode = subprocess_mode
-        # Initialize managers
         self.env_manager = EnvironmentManager(config)
         self.episode_runner = EpisodeRunner(config)
         
-        # Import task module to ensure environment is registered
         try:
             self.env_manager.import_task_module()
-            # Verify environment is registered
             self.env_manager.verify_environment_registered()
         except Exception as e:
-            # Wrap import errors as EnvironmentError for consistent error handling
             if not isinstance(e, EnvironmentError):
                 raise EnvironmentError(
                     f"Failed to import task module for '{config.task_name}': {str(e)}",
@@ -109,20 +115,13 @@ class NavigationEvaluator:
         self.start_time = time.time()
         
         try:
-            # Pre-verify that all required scenes are available
-            self.env_manager.verify_scenes_available()  # type: ignore[attr-defined]
-            
-            # Run evaluation campaign (environments are created per scene)
+            self.env_manager.verify_scenes_available()
             episodes = self._run_campaign(policy)
-            
-            # Compute aggregate metrics
             aggregate = AggregateMetrics.from_episodes(episodes)
             print(f"[INFO] Aggregate: {aggregate}")
 
             max_steps = self.config.max_episode_steps or 900
-            # Compute final score
             score = self.scorer.compute_score_from_steps(aggregate, max_steps, episodes)
-            # Prepare results
             results = {
                 "status": EvaluationStatus.SUCCESS.value,
                 "score": score,
@@ -149,7 +148,7 @@ class NavigationEvaluator:
                 "details": e.details,
                 "metadata": self._get_metadata(),
             }
-        except TimeoutError as e:
+        except EvaluationTimeoutError as e:
             return {
                 "status": e.status.value,
                 "score": 0.0,
@@ -183,7 +182,6 @@ class NavigationEvaluator:
         if self.checkpoint_path is None:
             return None
         
-        # Load policy using the existing environment
         self._policy = load_policy_from_checkpoint(self.checkpoint_path, self.config.task_name, env)
         return self._policy
     
@@ -204,8 +202,6 @@ class NavigationEvaluator:
         """
         episodes = []
         episode_id = 0
-        
-        # Get environment-scene combinations
         env_scene_combos = self.config.env_scenes
 
         # If multiple envs/scenes, run each in a fresh subprocess to avoid simulator reuse hangs
@@ -231,7 +227,6 @@ class NavigationEvaluator:
                 with open(tmp_path, "r") as f:
                     episode_dicts = json.load(f)
                 os.remove(tmp_path)
-                # Reconstruct EpisodeMetrics and reindex episode_id sequentially
                 for ep_dict in episode_dicts:
                     ep = EpisodeMetrics(**ep_dict)
                     ep.episode_id = episode_id
@@ -240,40 +235,32 @@ class NavigationEvaluator:
 
             return episodes
         
-        # Iterate over all environment-scene-seed combinations
         for env_scene_combo in env_scene_combos:
             env_id = env_scene_combo["env_id"]
             scene = env_scene_combo["scene"]
             
             print(f"[INFO] Loading environment: env_id={env_id}, scene={scene}")
-            # Create environment for this env_id and scene
             scene_env = self.env_manager.load_environment_for_scene(env_id=env_id, scene=scene)  # type: ignore[attr-defined]
             print(f"[INFO] Environment ready: env_id={env_id}, scene={scene}")
-            # Load policy lazily on first environment if checkpoint is provided
             if policy is None and self.checkpoint_path is not None:
                 try:
                     policy = self._load_policy_lazy(scene_env)
                 except Exception as e:
-                    # If policy loading fails, continue with random actions
-                    print(f"Warning: Failed to load policy: {e}. Using random actions.", file=__import__("sys").stderr)
+                    print(f"Warning: Failed to load policy: {e}. Using random actions.", file=sys.stderr)
                     policy = None
             
             try:
                 for seed in self.config.seeds:
-                    # Run episodes for this env-scene-seed combination
                     for _ in range(self.config.num_episodes):
-                        # Check timeout
                         if self.config.timeout_seconds:
                             elapsed = time.time() - (self.start_time or 0)
                             if elapsed > self.config.timeout_seconds:
                                 scene_env.close()
-                                raise TimeoutError(
+                                raise EvaluationTimeoutError(
                                     f"Evaluation exceeded timeout of {self.config.timeout_seconds}s",
                                     details={"elapsed_seconds": elapsed},
                                 )
                         
-                        # Run single episode (may return multiple metrics for vectorized environments)
-                        # Pass scene for episode identification
                         episode_metrics_list = self.episode_runner.run_episode(
                             scene_env,
                             policy,
@@ -282,7 +269,6 @@ class NavigationEvaluator:
                             seed,
                             episode_id,
                         )  # type: ignore[attr-defined]
-                        # Handle both single EpisodeMetrics and list of EpisodeMetrics
                         if isinstance(episode_metrics_list, list):
                             for episode_metrics in episode_metrics_list:
                                 print(f"[INFO] Episode metrics: {episode_metrics}")
@@ -294,7 +280,6 @@ class NavigationEvaluator:
                             episode_id += 1
             finally:
                 scene_env.close()
-                # Force release of simulator resources before next env creation
                 try:
                     import gc
                     del scene_env
@@ -312,8 +297,6 @@ class NavigationEvaluator:
         """
         elapsed = time.time() - (self.start_time or time.time())
         num_combos = len(self.config.env_scenes)
-        
-        # Format scenes as human-readable strings
         scenes = [
             f"{combo['env_id']}:{combo['scene']}"
             for combo in self.config.env_scenes

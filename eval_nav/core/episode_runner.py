@@ -26,7 +26,7 @@ from ..utils.task_checker import check_success
 class EpisodeRunner:
     """Runs episodes for navigation evaluation."""
     
-    def __init__(self, config: Any):
+    def __init__(self, config: Any):  # type: ignore[type-arg]
         """Initialize episode runner.
         
         Args:
@@ -64,16 +64,12 @@ class EpisodeRunner:
             EvaluationRuntimeError: If episode execution fails.
         """
         try:
-            # Reset environment with seed
             obs, info = env.reset(seed=seed)
-            
             max_steps = self.config.max_episode_steps or getattr(env.unwrapped, "max_episode_length", 900)
 
-            # Detect if environment is vectorized
             num_envs = self._detect_num_envs(env, obs)
             is_vectorized = num_envs > 1
             
-            # Initialize state logging
             if self.state_logger is not None:
                 if is_vectorized:
                     for env_idx in range(num_envs):
@@ -81,36 +77,27 @@ class EpisodeRunner:
                 else:
                     self.state_logger.reset(episode_id=episode_id, env_idx=None, env=env)
             
-            # Track episode state for each environment
             if is_vectorized:
-                # Track state per environment
                 steps_per_env = [0] * num_envs
                 done_per_env = [False] * num_envs
                 success_per_env = [False] * num_envs
                 timeout_per_env = [False] * num_envs
                 completion_time_per_env: list[float | None] = [None] * num_envs
             else:
-                # Single environment tracking
                 steps = 0
                 done = False
                 success = False
                 timeout = False
-                # Initialize done_per_env for non-vectorized case (not used, but needed for _get_action signature)
                 done_per_env = []
             
-            # Run episode until all environments are done or max steps reached
             all_done = False
             steps = 0
             
             while not all_done and steps < max_steps:
-                # Get action
                 action = self._get_action(env, obs, policy, is_vectorized, num_envs, done_per_env)
-                
-                # Step environment
                 obs, reward, terminated, truncated, info = env.step(action)
                 steps += 1
                 
-                # Log state for this step
                 if self.state_logger is not None:
                     if is_vectorized:
                         for env_idx in range(num_envs):
@@ -131,7 +118,6 @@ class EpisodeRunner:
                             info=info,
                         )
                 
-                # Handle vectorized environment
                 if is_vectorized:
                     all_done = self._update_vectorized_state(
                         env, info, terminated, truncated, steps_per_env, done_per_env,
@@ -142,7 +128,6 @@ class EpisodeRunner:
                         env, info, terminated, truncated, steps, max_steps, success, timeout
                     )
             
-            # Save state logs before finalizing metrics
             if self.state_logger is not None:
                 if is_vectorized:
                     for env_idx in range(num_envs):
@@ -162,7 +147,6 @@ class EpisodeRunner:
                         env_id=env_id,
                     )
             
-            # Finalize metrics
             if is_vectorized:
                 return self._finalize_vectorized_metrics(
                     env, info, scene, env_id, seed, episode_id, steps_per_env,
@@ -194,16 +178,24 @@ class EpisodeRunner:
         Returns:
             Number of environments (1 for single env).
         """
-        # Detect if environment is vectorized by checking num_envs property
-        # IsaacLab environments expose num_envs via unwrapped.num_envs or unwrapped.scene.num_envs
         unwrapped = getattr(env, "unwrapped", None)
-        num_envs = (getattr(unwrapped, "num_envs", None) 
-                   or getattr(getattr(unwrapped, "scene", None), "num_envs", None) if unwrapped else None)
+        num_envs = None
+        if unwrapped:
+            num_envs = getattr(unwrapped, "num_envs", None)
+            if num_envs is None:
+                scene = getattr(unwrapped, "scene", None)
+                if scene is not None:
+                    num_envs = getattr(scene, "num_envs", None)
         
-        # Fallback: check observation shape
         if num_envs is None:
-            obs_tensor = next(iter(obs.values()), obs) if isinstance(obs, dict) else obs
-            num_envs = obs_tensor.shape[0] if torch.is_tensor(obs_tensor) and obs_tensor.ndim > 0 else 1
+            if isinstance(obs, dict):
+                obs_tensor = next(iter(obs.values()), obs)
+            else:
+                obs_tensor = obs
+            if torch.is_tensor(obs_tensor) and obs_tensor.ndim > 0:
+                num_envs = obs_tensor.shape[0]
+            else:
+                num_envs = 1
         
         return num_envs
     
@@ -230,27 +222,20 @@ class EpisodeRunner:
             Action tensor or dict.
         """
         if policy is not None:
-            # Policy inference
             if isinstance(obs, dict):
-                # Handle dict observations
                 action = policy(obs)
             else:
                 action = policy(obs)
         else:
-            # Random action - convert numpy to torch tensor
             action_np = env.action_space.sample()
-            # Convert to torch tensor and move to device
             device = getattr(env.unwrapped, "device", "cpu")
             if isinstance(action_np, np.ndarray):
                 action = torch.from_numpy(action_np).to(device=device, dtype=torch.float32)
             elif isinstance(action_np, dict):
                 action = {k: torch.from_numpy(v).to(device=device, dtype=torch.float32) for k, v in action_np.items()}
             else:
-                # Already a tensor or other type
                 action = action_np
         
-        # Mask actions for done environments (stop them from acting)
-        # This prevents done environments from continuing to take actions
         if is_vectorized:
             action = self._mask_done_actions(action, num_envs, done_per_env)
         
@@ -268,11 +253,9 @@ class EpisodeRunner:
             Masked action.
         """
         if isinstance(action, dict):
-            # Mask each action component
             masked_action = {}
             for k, v in action.items():
                 if torch.is_tensor(v) and len(v.shape) > 0 and v.shape[0] == num_envs:
-                    # Clone and mask done environments by zeroing their actions
                     masked_v = v.clone()
                     for env_idx in range(num_envs):
                         if done_per_env[env_idx]:
@@ -282,7 +265,6 @@ class EpisodeRunner:
                     masked_action[k] = v
             return masked_action
         elif torch.is_tensor(action) and len(action.shape) > 0 and action.shape[0] == num_envs:
-            # Mask tensor action by zeroing actions for done environments
             masked_action = action.clone()
             for env_idx in range(num_envs):
                 if done_per_env[env_idx]:
@@ -323,18 +305,14 @@ class EpisodeRunner:
         Returns:
             Whether all environments are done.
         """
-        # Update state for each environment
         for env_idx in range(num_envs):
             if not done_per_env[env_idx]:
                 steps_per_env[env_idx] = steps
-                # Check if terminated/truncated are tensors before indexing
                 if torch.is_tensor(terminated) and torch.is_tensor(truncated):
                     done_per_env[env_idx] = bool(terminated[env_idx].item() or truncated[env_idx].item())
                 else:
-                    # Fallback for non-tensor case
                     done_per_env[env_idx] = bool(terminated or truncated)
                 
-                # Check for success using task-aware function
                 success_per_env[env_idx] = check_success(
                     env=env,
                     info=info,
@@ -343,11 +321,9 @@ class EpisodeRunner:
                     current_success=success_per_env[env_idx],
                 )
                 
-                # Check timeout
                 if steps >= max_steps:
                     timeout_per_env[env_idx] = True
         
-        # Check if all environments are done
         return all(done_per_env)
     
     def _update_single_state(
@@ -381,7 +357,6 @@ class EpisodeRunner:
         else:
             done = bool(terminated or truncated)
         
-        # Check for success using task-aware function
         success = check_success(
             env=env,
             info=info,
@@ -390,12 +365,10 @@ class EpisodeRunner:
             current_success=success,
         )
         
-        # Check timeout
         if steps >= max_steps:
             timeout = True
         
         all_done = done
-        
         return done, success, timeout, all_done
     
     def _finalize_vectorized_metrics(
@@ -430,10 +403,7 @@ class EpisodeRunner:
         Returns:
             List of EpisodeMetrics for all environments.
         """
-        # Always check final success status for each environment
-        # This ensures we capture success even if it wasn't detected during the loop
         for env_idx in range(num_envs):
-            # Final success check using task-aware function
             success_per_env[env_idx] = check_success(
                 env=env,
                 info=info,
@@ -442,11 +412,9 @@ class EpisodeRunner:
                 current_success=success_per_env[env_idx],
             )
             
-            # Compute completion time (for successful episodes)
             if success_per_env[env_idx] and not timeout_per_env[env_idx]:
                 completion_time_per_env[env_idx] = float(steps_per_env[env_idx])
         
-        # Return list of EpisodeMetrics for all environments
         return [
             EpisodeMetrics(
                 episode_id=episode_id + env_idx,
@@ -489,8 +457,6 @@ class EpisodeRunner:
         Returns:
             EpisodeMetrics instance.
         """
-        # Always check final success status (episode might have succeeded)
-        # This ensures we capture success even if it wasn't detected during the loop
         success = check_success(
             env=env,
             info=info,
@@ -499,11 +465,8 @@ class EpisodeRunner:
             current_success=success,
         )
         
-        # Compute completion time (for successful episodes)
         completion_time = None
         if success and not timeout:
-            # Use steps as proxy for time (assuming fixed dt)
-            # In practice, you might want to track actual wall-clock time
             completion_time = float(steps)
         
         return EpisodeMetrics(

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 
 @dataclass
 class EpisodeMetrics:
@@ -99,22 +101,17 @@ class AggregateMetrics:
         successful = sum(1 for e in episodes if e.success)
         failed = total - successful
         timeouts = sum(1 for e in episodes if e.timeout)
-        
         success_rate = successful / total if total > 0 else 0.0
         
-        # Completion time (only for successful episodes)
         successful_times = [e.completion_time for e in episodes if e.success and e.completion_time is not None]
         if successful_times:
-            import numpy as np
             mean_time = float(np.mean(successful_times))
             std_time = float(np.std(successful_times))
         else:
             mean_time = None
             std_time = None
         
-        # Steps (all episodes)
         all_steps = [e.steps for e in episodes]
-        import numpy as np
         mean_steps = float(np.mean(all_steps))
         std_steps = float(np.std(all_steps))
         

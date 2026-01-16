@@ -57,11 +57,9 @@ class StateLogger:
         if env_idx is None:
             env_idx = 0
         
-        # Create unique key for this episode+env combination
         key = (episode_id, env_idx)
         self._state_buffers[key] = {}
         
-        # Extract and store metadata once per episode (optimizes file size)
         if env is not None and hasattr(env, "_log_metadata"):
             metadata = env._log_metadata(env_idx=env_idx)
             self._metadata_buffers[key] = metadata if metadata else None
@@ -93,28 +91,20 @@ class StateLogger:
         
         key = (episode_id, env_idx)
         
-        # Collect robot state - use standardized method if available
         if hasattr(env, "_log_state"):
-            # Use centralized state extraction from EvalCompatEnv
             state_data = env._log_state(env_idx=env_idx, info=info)
         else:
-            # Fallback for non-wrapped environments
             state_data = {}
         
-        # Store step number (only variable per step)
         state_data["step"] = step
-        # Note: episode_id and env_idx are NOT stored per step (they're in the key)
 
-        # Initialize buffer if needed
         if key not in self._state_buffers:
             self._state_buffers[key] = {}
         
-        # Append each field to its respective list for efficient batching
         for field_name, field_value in state_data.items():
             if field_name not in self._state_buffers[key]:
                 self._state_buffers[key][field_name] = []
             
-            # Convert tensors to numpy immediately to save memory
             if isinstance(field_value, torch.Tensor):
                 self._state_buffers[key][field_name].append(field_value.cpu().numpy())
             elif isinstance(field_value, (list, np.ndarray)):
@@ -153,24 +143,16 @@ class StateLogger:
             logger.warning(f"No state data to save for episode {episode_id}, env_idx {env_idx}")
             return None
         
-        # Convert batched lists to efficient numpy arrays
         state_dict = self._convert_to_numpy(self._state_buffers[key])
-        
-        # Get metadata for this episode/env (stored once per episode)
         metadata = self._metadata_buffers.get(key)
 
-        # Create data subdirectory organized by scene
         data_dir = self.log_dir / "data" / f"env_{env_id}"
         data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create filename (short but informative)
         env_id_part = f"{env_id}_" if env_id is not None else ""
         filename = f"ep{episode_id}_{env_id_part}sc{scene}_sd{seed}_e{env_idx}.npy"
         filepath = data_dir / filename
         
-        # Save as .npy file with metadata included
-        # Structure: {'state': state_dict, 'metadata': metadata, 'episode_id': episode_id, 'env_idx': env_idx}
-        # episode_id and env_idx stored once at the top level (not per step)
         save_data = {
             "state": state_dict,
             "metadata": metadata,
@@ -180,7 +162,6 @@ class StateLogger:
         np.save(filepath, save_data)
         logger.debug(f"Saved state log to {filepath} (episode_id={episode_id}, env_idx={env_idx})")
         
-        # Clear buffers for this episode/env
         del self._state_buffers[key]
         if key in self._metadata_buffers:
             del self._metadata_buffers[key]
@@ -203,7 +184,6 @@ class StateLogger:
         state_dict = {}
         num_steps = None
         
-        # Determine number of steps from first field
         for field_name, field_list in state_buffer.items():
             if len(field_list) > 0:
                 num_steps = len(field_list)
@@ -212,20 +192,15 @@ class StateLogger:
         if num_steps is None or num_steps == 0:
             return {}
         
-        # Convert each field to a numpy array efficiently
         for field_name, field_list in state_buffer.items():
             if len(field_list) != num_steps:
                 logger.warning(f"Field '{field_name}' has {len(field_list)} entries, expected {num_steps}")
                 continue
             
-            # Stack arrays efficiently
             try:
-                # Try to stack as numpy array (works for numeric arrays)
                 stacked = np.stack(field_list) if field_list else np.array([])
                 state_dict[field_name] = stacked
             except (ValueError, TypeError):
-                # For scalar values or mixed types, create array of objects
-                # This handles cases like floats, ints, bools, or arrays of different shapes
                 state_dict[field_name] = np.array(field_list)
         
         return state_dict

@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import importlib
-import yaml
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 @dataclass
@@ -95,7 +97,6 @@ class EvalConfig:
             data = yaml.safe_load(f)
         
         config = cls(**data)
-        # Resolve policy_path if it's "default" or None
         config._resolve_policy_path()
         return config
     
@@ -122,7 +123,6 @@ class EvalConfig:
         if not self.task_name:
             raise ValueError("task_name cannot be empty")
         
-        # Validate env_scenes
         if not self.env_scenes:
             raise ValueError("env_scenes list cannot be empty")
         for i, env_scene in enumerate(self.env_scenes):
@@ -155,17 +155,14 @@ class EvalConfig:
         "best_policy/best_policy.pt" in the task project folder.
         """
         if self.policy_path is None or self.policy_path == "default":
-            # Try to find task project folder
             task_project_dir = self._find_task_project_folder()
             if task_project_dir:
                 default_path = task_project_dir / "best_policy" / "best_policy.pt"
                 if default_path.exists():
                     self.policy_path = str(default_path)
                 else:
-                    # Set to None if default path doesn't exist (will use random actions)
                     self.policy_path = None
             else:
-                # Could not find task project folder, set to None
                 self.policy_path = None
     
     def _find_task_project_folder(self) -> Path | None:
@@ -177,21 +174,16 @@ class EvalConfig:
         if not self.task_module:
             return None
         
-        # Try to get the module's file location
         try:
             module = importlib.import_module(self.task_module)
             if hasattr(module, "__file__") and module.__file__:
                 module_path = Path(module.__file__)
-                # Navigate up from the module file to find the task project root
-                # Module structure: source/task-*/source/module/...
-                # We want: source/task-*/
                 current = module_path.parent
-                # Go up until we find a directory starting with "task-"
                 for _ in range(10):  # Limit depth to avoid infinite loops
                     if current.name.startswith("task-"):
                         return current
                     parent = current.parent
-                    if parent == current:  # Reached root
+                    if parent == current:
                         break
                     current = parent
         except ImportError:

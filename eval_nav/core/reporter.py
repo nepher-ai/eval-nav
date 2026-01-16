@@ -50,12 +50,10 @@ class EvaluationReporter:
         lines.append("=" * 60)
         lines.append("")
         
-        # Status
         lines.append(f"Status: {status}")
         lines.append(f"Final Score: {score:.4f} (normalized [0, 1])")
         lines.append("")
         
-        # Error case
         if status != "SUCCESS":
             error = self.results.get("error", "Unknown error")
             lines.append(f"Error: {error}")
@@ -64,7 +62,6 @@ class EvaluationReporter:
             lines.append("")
             return "\n".join(lines)
         
-        # Metrics
         metrics = self.results.get("metrics", {})
         if metrics:
             lines.append("Aggregate Metrics:")
@@ -85,7 +82,6 @@ class EvaluationReporter:
                 lines.append(f"  Std Steps: {metrics['std_steps']:.2f}")
             lines.append("")
         
-        # Metadata
         metadata = self.results.get("metadata", {})
         if metadata:
             lines.append("Evaluation Metadata:")
@@ -100,7 +96,6 @@ class EvaluationReporter:
                 lines.append(f"  Elapsed Time: {metadata['elapsed_seconds']:.2f} seconds")
             lines.append("")
         
-        # Interpretation
         lines.append("Interpretation:")
         lines.append("-" * 60)
         if score >= 0.8:

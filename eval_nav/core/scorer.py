@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from ..domain.metrics import AggregateMetrics, EpisodeMetrics
 
 
@@ -42,26 +44,17 @@ class V1Scorer:
         Returns:
             Final score in [0, 1] range.
         """
-        # Success rate component (0.0 to 1.0)
         success_component = metrics.success_rate
         
-        # Time component (0.0 to 1.0) - only for successful episodes
         if metrics.mean_completion_time is not None and metrics.successful_episodes > 0:
-            # Normalize by max_episode_steps (assuming 1 step = 1 time unit for simplicity)
-            # In practice, you might want to use actual time if available
             normalized_time = metrics.mean_completion_time / max_episode_steps
-            # Invert: faster = better, so 1.0 - normalized_time
-            # But cap at max_normalized_time
             if normalized_time > self.max_normalized_time:
                 time_component = 0.0
             else:
                 time_component = 1.0 - (normalized_time / self.max_normalized_time)
         else:
-            # No successful episodes = 0 time component
             time_component = 0.0
         
-        # Weighted combination: 70% success, 30% time
-        # Failures are heavily penalized (success_component = 0)
         final_score = 0.7 * success_component + 0.3 * time_component
         
         return float(final_score)
@@ -77,17 +70,13 @@ class V1Scorer:
         Returns:
             Final score in [0, 1] range.
         """
-        # Success rate component
         success_component = metrics.success_rate
         
-        # Time component based on steps (for successful episodes)
         if metrics.successful_episodes > 0 and episodes:
-            # Use mean steps of successful episodes
             successful_steps = [
                 e.steps for e in episodes if e.success
             ]
             if successful_steps:
-                import numpy as np
                 mean_successful_steps = float(np.mean(successful_steps))
                 normalized_steps = mean_successful_steps / max_episode_steps
                 if normalized_steps > self.max_normalized_time:
@@ -97,7 +86,6 @@ class V1Scorer:
             else:
                 time_component = 0.0
         elif metrics.mean_completion_time is not None:
-            # Fallback to mean_completion_time if available
             normalized_time = metrics.mean_completion_time / max_episode_steps
             if normalized_time > self.max_normalized_time:
                 time_component = 0.0

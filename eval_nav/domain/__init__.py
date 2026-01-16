@@ -17,7 +17,7 @@ from .errors import (
     EvaluationError,
     EvaluationRuntimeError,
     EvaluationStatus,
-    TimeoutError,
+    EvaluationTimeoutError,
 )
 from .metrics import AggregateMetrics, EpisodeMetrics
 
@@ -32,6 +32,6 @@ __all__ = [
     "EvaluationError",
     "EnvironmentError",
     "EvaluationRuntimeError",
-    "TimeoutError",
+    "EvaluationTimeoutError",
 ]
 

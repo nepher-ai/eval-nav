@@ -41,7 +41,7 @@ class EvaluationRuntimeError(EvaluationError):
         super().__init__(message, EvaluationStatus.EVAL_ERROR, details)
 
 
-class TimeoutError(EvaluationError):
+class EvaluationTimeoutError(EvaluationError):
     """Raised when evaluation exceeds time limit."""
     
     def __init__(self, message: str, details: dict[str, Any] | None = None):

@@ -55,7 +55,6 @@ def check_task_status(
                     if env_idx is not None:
                         success = bool(task_completed[env_idx].item()) or success
                     else:
-                        # Handle scalar tensor or single env
                         if task_completed.numel() == 1:
                             success = bool(task_completed.item()) or success
                         else:
@@ -63,13 +62,11 @@ def check_task_status(
                 else:
                     success = bool(task_completed) or success
             
-            # Check task failure
             if task_failed is not None:
                 if torch.is_tensor(task_failed):
                     if env_idx is not None:
                         failure = bool(task_failed[env_idx].item()) or failure
                     else:
-                        # Handle scalar tensor or single env
                         if task_failed.numel() == 1:
                             failure = bool(task_failed.item()) or failure
                         else:
@@ -78,7 +75,6 @@ def check_task_status(
                     failure = bool(task_failed) or failure
         except Exception as e:
             logging.debug(f"Failed to check task status via eval_compat: {e}")
-            # Fall through to other methods
     else:
         raise ValueError("Environment does not have task completion or failure properties")
     

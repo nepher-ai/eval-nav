@@ -12,6 +12,7 @@ building for different navigation tasks and robots.
 from __future__ import annotations
 
 import importlib
+from importlib import import_module
 from typing import Any
 
 import gymnasium as gym
@@ -40,16 +41,13 @@ class EnvironmentManager:
         Raises:
             EnvironmentError: If module import fails.
         """
-        # Use configured module if provided
         if self.config.task_module:
             try:
                 module = importlib.import_module(self.config.task_module)
-                # Verify the import worked by checking if module was loaded
                 if module is None:
                     raise ImportError(f"Failed to import module: {self.config.task_module}")
                 return
             except ImportError as e:
-                # Re-raise with more context - don't silently fail
                 raise EnvironmentError(
                     f"Failed to import task module '{self.config.task_module}': {str(e)}. "
                     f"Make sure the module is installed and available in PYTHONPATH.",
@@ -75,12 +73,9 @@ class EnvironmentManager:
         Raises:
             EnvironmentError: If environment is not registered.
         """
-        # Check if environment is registered using gym.spec()
         try:
             gym.spec(self.config.task_name)
         except gym.error.NameNotFound:
-            # Environment not found - get list of available similar environments
-            # registry is a runtime attribute, not in type stubs
             registry = getattr(gym.envs, "registry", {})
             all_envs = list(registry.keys()) if registry else []
             available_envs = [env_id for env_id in all_envs if "Leatherback" in env_id or "Animal" in env_id]
@@ -104,10 +99,7 @@ class EnvironmentManager:
         Raises:
             EnvironmentError: If any required scene is not available.
         """
-        # Get environment-scene combinations
         env_scenes = self.config.env_scenes
-        
-        # Group by env_id to verify each environment once
         env_scenes_map: dict[str, list[Any]] = {}
         for env_scene in env_scenes:
             env_id = env_scene["env_id"]
@@ -116,31 +108,25 @@ class EnvironmentManager:
                 env_scenes_map[env_id] = []
             env_scenes_map[env_id].append(scene)
         
-        # Verify each environment
         all_missing_scenes = []
         for env_id, scenes in env_scenes_map.items():
             try:
-                # Load environment from envhub (nepher) cache
                 from nepher import load_env
                 env = load_env(env_id, category="navigation")
                 
-                # Determine available scenes based on environment type
-                # Use resolved scenes (env.scenes/env.preset_scenes) to match what loader checks
                 if env.type == "preset":
                     available_scenes = list(range(len(env.preset_scenes)))
-                    scene_list = env.preset_scenes  # Use preset_scenes for scene_id lookup
+                    scene_list = env.preset_scenes
                 else:
                     available_scenes = list(range(len(env.scenes)))
-                    scene_list = env.scenes  # Use scenes for scene_id lookup
+                    scene_list = env.scenes
                 
-                # Check each required scene for this environment
                 missing_scenes = []
                 for scene in scenes:
                     if isinstance(scene, int):
                         if scene not in available_scenes:
                             missing_scenes.append(f"Scene index {scene} (available: 0-{len(available_scenes)-1})")
                     elif isinstance(scene, str):
-                        # Try to find scene by ID (Scene.name is the scene_id)
                         scene_found = False
                         for s in scene_list:
                             if s.name.lower() == scene.lower():
@@ -158,10 +144,8 @@ class EnvironmentManager:
                     })
                 
             except EnvironmentError:
-                # Re-raise environment errors as-is
                 raise
             except Exception as e:
-                # Wrap other errors
                 raise EnvironmentError(
                     f"Failed to verify scenes for environment '{env_id}': {str(e)}",
                     details={"env_id": env_id, "error_type": type(e).__name__},
@@ -196,37 +180,24 @@ class EnvironmentManager:
         Returns:
             Environment configuration object.
         """
-        # Get the config class entry point from the registry
         cfg_entry_point = gym.spec(self.config.task_name).kwargs.get("env_cfg_entry_point")
         if cfg_entry_point is None:
-            # If no entry point, return None and let gym.make use defaults
             return None
         
-        # Parse the entry point (e.g., "module.path:ClassName")
         if ":" in cfg_entry_point:
             module_path, class_name = cfg_entry_point.rsplit(":", 1)
         else:
-            # Handle YAML files if needed
             raise ValueError(f"Expected class entry point, got: {cfg_entry_point}")
         
-        # Import and get the config class
-        from importlib import import_module
         module = import_module(module_path)
         cfg_class = getattr(module, class_name)
         
-        # Get env_config overrides from config (for additional parameters)
         env_config = self.config.env_config.copy() if self.config.env_config else {}
-        
-        # Set env_id and scene_id (required)
-        # Note: scene_id is used to avoid conflict with base class 'scene' field
         env_config["env_id"] = env_id
         env_config["scene_id"] = scene
         
-        # Instantiate config class with overrides
-        # The config class will handle env_id and scene in its __post_init__
         cfg = cfg_class(**env_config)
         
-        # Set num_envs for evaluation (mandatory, must be set after instantiation on scene.num_envs)
         if hasattr(cfg, "scene") and hasattr(cfg.scene, "num_envs"):
             cfg.scene.num_envs = self.config.num_envs
         
@@ -247,31 +218,22 @@ class EnvironmentManager:
         """
         try:
             print(f"[INFO] Building cfg for env_id={env_id}, scene={scene}")
-            # Build environment config for this scene
             env_kwargs = {}
             cfg = self.build_env_cfg(env_id=env_id, scene=scene)
             if cfg is not None:
                 env_kwargs["cfg"] = cfg
             
             print(f"[INFO] Creating gym env {self.config.task_name} with cfg (env_id={env_id}, scene={scene})")
-            # Create environment
             env = gym.make(self.config.task_name, **env_kwargs)
             
             print(f"[INFO] New Env Created: {env}")
-            # Try to wrap with eval_compat if available
-            # This provides standardized state extraction methods for scalable logging
             try:
-                # Try to import wrap_for_eval from the task module
-                # Task modules export wrap_for_eval at the root level (e.g., leatherbacknav.wrap_for_eval)
                 if self.config.task_module:
-                    import importlib
-                    task_module = importlib.import_module(self.config.task_module)
+                    task_module = import_module(self.config.task_module)
                     if hasattr(task_module, "wrap_for_eval"):
                         print(f"\n[INFO] Wrapping environment with eval_compat from {self.config.task_module}")
                         env = task_module.wrap_for_eval(env)
             except (ImportError, AttributeError, TypeError):
-                # If wrap_for_eval is not available, continue without wrapping
-                # The state logger will fall back to direct extraction
                 pass
             
             return env
