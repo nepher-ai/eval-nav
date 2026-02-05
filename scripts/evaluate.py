@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2025, Nepher Team
+# Copyright (c) 2026, Nepher AI
 # All rights reserved.
 #
 # SPDX-License-Identifier: Proprietary
