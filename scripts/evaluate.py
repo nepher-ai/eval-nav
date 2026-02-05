@@ -10,6 +10,7 @@ Launch Isaac Sim Simulator first.
 """
 
 import argparse
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -53,8 +54,8 @@ def main():
         dict: Dictionary containing core evaluation results with keys:
             - score: float (final evaluation score)
             - log_dir: str (path to the run directory where results are saved)
-            - status: str (evaluation status)
-            - metrics: dict (aggregate metrics)
+            - metadata: dict (evaluation metadata as JSON-serializable dict)
+            - summary: str (reporter's human-readable summary)
     """
     try:
         config = EvalConfig.from_yaml(args_cli.config)
@@ -110,12 +111,23 @@ def main():
     if results.get("status") != "SUCCESS":
         sys.exit(1)
     
-    return {
+    result = {
         "score": results.get("score"),
         "log_dir": str(run_dir),
-        "status": results.get("status"),
-        "metrics": results.get("metrics"),
+        "metadata": results.get("metadata", {}),
+        "summary": reporter.generate_summary(),
     }
+    
+    result_json_path = "evaluation_result.json"
+    try:
+        with open(result_json_path, "w") as f:
+            json.dump(result, f, indent=2)
+        if not args_cli.quiet:
+            print(f"  - Result: {result_json_path}")
+    except IOError as e:
+        print(f"[WARNING] Failed to save result JSON: {e}", file=sys.stderr)
+    
+    return result
 
 
 if __name__ == "__main__":

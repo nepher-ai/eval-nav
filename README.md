@@ -15,27 +15,24 @@ This public evaluation repository is required for the **Nepher subnet** (Bittens
 
 - IsaacLab 2.3+
 - Isaac Sim 5.1+
-- envhub (nepher) installed (`pip install -e source/envhub`)
-- Target environments pre-downloaded (via envhub)
+- nepher installed (`pip install nepher`)
+- Target environments pre-downloaded (via nepher CLI)
 
 ## Installation
 
 ```bash
-# 1. Install envhub (nepher) (required for navigation environments)
-# See: source/envhub/README.md
-cd source/envhub
-pip install -e .
+# 1. Install nepher (required for navigation environments)
+pip install nepher
 
 # 2. Pre-download target environments
 # See available environments: nepher list
 nepher download waypoint-benchmark-v1 waypoint-sample-v1
 
 # 3. Install eval-nav
-cd source/eval-nav
 pip install -e .
 ```
 
-For envhub (nepher) setup and CLI usage, see [envhub README](https://github.com/nepher-ai/envhub).
+For nepher CLI usage, see [nepher README](https://github.com/nepher-ai/envhub).
 
 ## Quick Start
 
@@ -78,7 +75,7 @@ logs/my-eval/eval_run_YYYYMMDD_HHMMSS/
 ├── results.json    # Machine-readable results
 ├── summary.txt     # Human-readable summary
 ├── config.yaml     # Evaluation configuration
-└── data/          # Episode state logs (.npy)
+└── data/           # Episode state logs (.npy)
 ```
 
 ## Programmatic API
@@ -115,24 +112,6 @@ python scripts/evaluate.py --config config.yaml --enable_cameras
 python scripts/evaluate.py --config config.yaml --experience isaaclab.python.headless.kit
 ```
 
-## Troubleshooting
-
-**Environment not found:**
-```bash
-cd source/task-your-nav
-pip install -e .
-```
-
-**Policy not found:**
-- Set `policy_path: null` to use random actions
-- Or provide explicit path to `.pt` file
-
 ## License
 
 This project is proprietary software. See [LICENSE](LICENSE) for details.
-
-**Copyright (c) 2025, Nepher Team. All rights reserved.**
-
-Unauthorized use, copying, modification, distribution, or exploitation of this software
-is strictly prohibited. This software is licensed solely for use in connection with
-the Nepher subnet (Bittensor Subnet 49) evaluation framework.
