@@ -38,6 +38,13 @@ parser.add_argument(
     help="Suppress console output",
 )
 
+parser.add_argument(
+    "--result-path",
+    type=str,
+    default=None,
+    help="Absolute path for evaluation_result.json output (default: cwd)",
+)
+
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -118,7 +125,11 @@ def main():
         "summary": reporter.generate_summary(),
     }
     
-    result_json_path = "evaluation_result.json"
+    if args_cli.result_path:
+        result_json_path = Path(args_cli.result_path)
+        result_json_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        result_json_path = Path("evaluation_result.json")
     try:
         with open(result_json_path, "w") as f:
             json.dump(result, f, indent=2)
