@@ -13,21 +13,19 @@ task_module: "leatherbacknav"
 env_scenes:
   - env_id: "waypoint-benchmark-v1"
     scene: 0
-  - env_id: "waypoint-sample-v1"
-    scene: 0
 
 # Random seeds for reproducibility
 seeds:
   - 42
 
 # Number of episodes per scene-seed combination
-num_episodes: 1
+num_episodes: 5
 
 # Maximum steps per episode (None = use environment default)
 max_episode_steps: 900
 
 # Number of parallel environments for evaluation (mandatory)
-num_envs: 1
+num_envs: 86
 
 # Scoring version (MVP supports v1 only)
 scoring_version: "v1"
