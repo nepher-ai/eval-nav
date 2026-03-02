@@ -1,0 +1,44 @@
+# Evaluation configuration for task-leatherback-waypointnav
+# 
+# This config evaluates the Leatherback waypoint navigation environment
+# using envhub scenes for standardized evaluation.
+
+task_name: "Nepher-Spot-WaypointNav-Hybrid-Envhub-Play-v0"
+
+# Python module to import for environment registration
+task_module: "spotwaypointnav_hybrid"
+
+# Environment-scene combinations to evaluate
+# Each entry specifies an env_id and scene to evaluate
+env_scenes:
+  - env_id: "waypoint-benchmark-v1"
+    scene: 0
+
+# Random seeds for reproducibility
+seeds:
+  - 42
+
+# Number of episodes per scene-seed combination
+num_episodes: 5
+
+# Maximum steps per episode (None = use environment default)
+max_episode_steps: 900
+
+# Number of parallel environments for evaluation (mandatory)
+num_envs: 86
+
+# Scoring version (MVP supports v1 only)
+scoring_version: "v1"
+
+# Logging
+log_dir: "logs/spot-waypointnav"
+enable_logging: true
+
+# Timeout for entire evaluation (seconds, None = no timeout)
+timeout_seconds: null
+
+# Policy checkpoint path (optional)
+# If "default" or not specified, will look for "best_policy/best_policy.pt" 
+# in the task project folder (task-spot-waypointnav)
+policy_path: "default"
+
