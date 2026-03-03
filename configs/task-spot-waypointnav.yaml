@@ -3,10 +3,10 @@
 # This config evaluates the Leatherback waypoint navigation environment
 # using envhub scenes for standardized evaluation.
 
-task_name: "Nepher-Spot-WaypointNav-Hybrid-Envhub-Play-v0"
+task_name: "Nepher-Spot-WaypointNav-Envhub-Play-v0"
 
 # Python module to import for environment registration
-task_module: "spotwaypointnav_hybrid"
+task_module: "spotwaypointnav"
 
 # Environment-scene combinations to evaluate
 # Each entry specifies an env_id and scene to evaluate
@@ -22,7 +22,7 @@ seeds:
 num_episodes: 5
 
 # Maximum steps per episode (None = use environment default)
-max_episode_steps: 900
+max_episode_steps: 450
 
 # Number of parallel environments for evaluation (mandatory)
 num_envs: 86
