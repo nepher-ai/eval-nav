@@ -19,7 +19,7 @@ seeds:
   - 42
 
 # Number of episodes per scene-seed combination
-num_episodes: 5
+num_episodes: 1
 
 # Maximum steps per episode (None = use environment default)
 max_episode_steps: 450
@@ -27,8 +27,8 @@ max_episode_steps: 450
 # Number of parallel environments for evaluation (mandatory)
 num_envs: 86
 
-# Scoring version (MVP supports v1 only)
-scoring_version: "v1"
+# Scoring version: v2 adds locomotion quality (walking stability check)
+scoring_version: "v2"
 
 # Logging
 log_dir: "logs/spot-waypointnav"

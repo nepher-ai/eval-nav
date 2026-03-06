@@ -58,7 +58,7 @@ class EvalConfig:
     
     # Scoring
     scoring_version: str = "v1"
-    """Scoring version to use. MVP supports 'v1' only."""
+    """Scoring version. 'v1' = success+time, 'v2' = success+time+locomotion quality."""
     
     # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)
@@ -139,8 +139,8 @@ class EvalConfig:
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
         
-        if self.scoring_version != "v1":
-            raise ValueError(f"Only scoring version 'v1' is supported in MVP. Got: {self.scoring_version}")
+        if self.scoring_version not in ("v1", "v2"):
+            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2'.")
         
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")

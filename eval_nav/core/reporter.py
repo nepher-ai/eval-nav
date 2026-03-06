@@ -80,6 +80,21 @@ class EvaluationReporter:
             lines.append(f"  Mean Steps: {metrics.get('mean_steps', 0.0):.2f}")
             if metrics.get("std_steps") is not None:
                 lines.append(f"  Std Steps: {metrics['std_steps']:.2f}")
+            
+            extra = metrics.get("extra", {})
+            if extra and "mean_speed" in extra:
+                lines.append("")
+                lines.append("Locomotion Quality:")
+                lines.append("-" * 60)
+                lines.append(f"  Mean Speed: {extra['mean_speed']:.3f} m/s")
+                lines.append(f"  Max Speed: {extra.get('max_speed', 0.0):.3f} m/s")
+                lines.append(f"  Speed Std: {extra.get('speed_std', 0.0):.3f} m/s")
+                lines.append(f"  Mean Vertical Speed: {extra.get('mean_vertical_speed', 0.0):.3f} m/s")
+                lines.append(f"  Mean Angular Speed: {extra.get('mean_angular_speed', 0.0):.3f} rad/s")
+                lines.append(f"  Angular Speed Std: {extra.get('angular_speed_std', 0.0):.3f} rad/s")
+                lines.append(f"  Mean Roll/Pitch Rate: {extra.get('mean_roll_pitch_rate', 0.0):.3f} rad/s")
+                walking = extra['mean_speed'] <= 1.6
+                lines.append(f"  Walking (not running): {'YES' if walking else 'NO — speed exceeds walking threshold'}")
             lines.append("")
         
         metadata = self.results.get("metadata", {})

@@ -27,10 +27,14 @@ class EpisodeMetrics:
     """Environment ID."""
     completion_time: float | None = None
     """Completion time in seconds (only for successful episodes)."""
+    extra: dict[str, Any] = field(default_factory=dict)
+    """Task-specific metrics (e.g. locomotion quality for quadrupeds).
+    Populated by the episode runner when the environment exposes the data.
+    Ignored by scorers that don't need it (V1)."""
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        d: dict[str, Any] = {
             "episode_id": self.episode_id,
             "scene": self.scene,
             "seed": self.seed,
@@ -40,6 +44,9 @@ class EpisodeMetrics:
             "env_id": self.env_id,
             "completion_time": self.completion_time,
         }
+        if self.extra:
+            d["extra"] = self.extra
+        return d
 
 
 @dataclass
@@ -59,10 +66,12 @@ class AggregateMetrics:
     """Mean steps across all episodes."""
     std_steps: float
     """Standard deviation of steps across all episodes."""
+    extra: dict[str, Any] = field(default_factory=dict)
+    """Aggregated task-specific metrics (mean of each numeric extra field)."""
     
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        d: dict[str, Any] = {
             "total_episodes": self.total_episodes,
             "successful_episodes": self.successful_episodes,
             "failed_episodes": self.failed_episodes,
@@ -73,6 +82,9 @@ class AggregateMetrics:
             "mean_steps": self.mean_steps,
             "std_steps": self.std_steps,
         }
+        if self.extra:
+            d["extra"] = self.extra
+        return d
     
     @classmethod
     def from_episodes(cls, episodes: list[EpisodeMetrics]) -> AggregateMetrics:
@@ -115,6 +127,8 @@ class AggregateMetrics:
         mean_steps = float(np.mean(all_steps))
         std_steps = float(np.std(all_steps))
         
+        extra = cls._aggregate_extra(episodes)
+        
         return cls(
             total_episodes=total,
             successful_episodes=successful,
@@ -125,5 +139,16 @@ class AggregateMetrics:
             std_completion_time=std_time,
             mean_steps=mean_steps,
             std_steps=std_steps,
+            extra=extra,
         )
+    
+    @staticmethod
+    def _aggregate_extra(episodes: list[EpisodeMetrics]) -> dict[str, Any]:
+        """Compute mean of each numeric extra field across episodes."""
+        buckets: dict[str, list[float]] = {}
+        for ep in episodes:
+            for k, v in ep.extra.items():
+                if isinstance(v, (int, float)):
+                    buckets.setdefault(k, []).append(float(v))
+        return {k: float(np.mean(vals)) for k, vals in buckets.items()}
 

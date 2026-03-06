@@ -11,6 +11,7 @@ single and vectorized environments.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 import gymnasium as gym
@@ -38,6 +39,56 @@ class EpisodeRunner:
         self.state_logger = None
         if config.enable_logging and config.log_dir:
             self.state_logger = StateLogger(log_dir=config.log_dir, enabled=True)
+    
+    # ------------------------------------------------------------------
+    # Locomotion data collection (populated only when env exposes it)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _has_locomotion(env: gym.Env) -> bool:
+        return callable(getattr(env, "get_locomotion_data", None))
+
+    @staticmethod
+    def _collect_locomotion_step(
+        env: gym.Env,
+        buffers: dict[int, dict[str, list[float]]],
+        env_idx: int,
+        done: bool,
+    ) -> None:
+        """Append one locomotion sample for *env_idx* unless it is already done."""
+        if done:
+            return
+        data = env.get_locomotion_data(env_idx=env_idx)  # type: ignore[attr-defined]
+        if data is None:
+            return
+        buf = buffers[env_idx]
+        for k, v in data.items():
+            buf[k].append(v)
+
+    @staticmethod
+    def _summarise_locomotion(buf: dict[str, list[float]]) -> dict[str, Any]:
+        """Reduce a per-step locomotion buffer into episode-level stats."""
+        if not buf or not buf.get("speed_2d"):
+            return {}
+        speeds = np.asarray(buf["speed_2d"])
+        summary: dict[str, Any] = {
+            "mean_speed": float(speeds.mean()),
+            "max_speed": float(speeds.max()),
+            "speed_std": float(speeds.std()),
+            "mean_vertical_speed": float(np.mean(buf["vertical_speed"])),
+            "mean_angular_speed": float(np.mean(buf["yaw_rate"])),
+            "angular_speed_std": float(np.std(buf["yaw_rate"])),
+            "mean_roll_pitch_rate": float(np.mean(buf["roll_pitch_rate"])),
+        }
+        if "feet_in_contact" in buf:
+            feet = np.asarray(buf["feet_in_contact"])
+            summary["mean_feet_in_contact"] = float(feet.mean())
+            summary["aerial_phase_fraction"] = float((feet == 0).mean())
+        if "terrain_slope" in buf:
+            slopes = np.asarray(buf["terrain_slope"])
+            summary["mean_slope_deg"] = float(np.degrees(slopes.mean()))
+            summary["max_slope_deg"] = float(np.degrees(slopes.max()))
+        return summary
     
     def run_episode(
         self,
@@ -90,6 +141,11 @@ class EpisodeRunner:
                 timeout = False
                 done_per_env = []
             
+            collect_loco = self._has_locomotion(env)
+            loco_buffers: dict[int, dict[str, list[float]]] = (
+                defaultdict(lambda: defaultdict(list)) if collect_loco else {}
+            )
+            
             all_done = False
             steps = 0
             
@@ -101,7 +157,7 @@ class EpisodeRunner:
                 if self.state_logger is not None:
                     if is_vectorized:
                         for env_idx in range(num_envs):
-                            if not done_per_env[env_idx]:  # Only log for active environments
+                            if not done_per_env[env_idx]:
                                 self.state_logger.log_step(
                                     env=env,
                                     episode_id=episode_id + env_idx,
@@ -117,6 +173,13 @@ class EpisodeRunner:
                             env_idx=None,
                             info=info,
                         )
+                
+                if collect_loco:
+                    if is_vectorized:
+                        for env_idx in range(num_envs):
+                            self._collect_locomotion_step(env, loco_buffers, env_idx, done_per_env[env_idx])
+                    else:
+                        self._collect_locomotion_step(env, loco_buffers, 0, False)
                 
                 if is_vectorized:
                     all_done = self._update_vectorized_state(
@@ -150,11 +213,13 @@ class EpisodeRunner:
             if is_vectorized:
                 return self._finalize_vectorized_metrics(
                     env, info, scene, env_id, seed, episode_id, steps_per_env,
-                    success_per_env, timeout_per_env, completion_time_per_env, num_envs
+                    success_per_env, timeout_per_env, completion_time_per_env, num_envs,
+                    loco_buffers,
                 )
             else:
                 return self._finalize_single_metrics(
-                    env, info, scene, env_id, seed, episode_id, steps, success, timeout
+                    env, info, scene, env_id, seed, episode_id, steps, success, timeout,
+                    loco_buffers.get(0, {}),
                 )
             
         except Exception as e:
@@ -384,25 +449,9 @@ class EpisodeRunner:
         timeout_per_env: list[bool],
         completion_time_per_env: list[float | None],
         num_envs: int,
+        loco_buffers: dict[int, dict[str, list[float]]],
     ) -> list[EpisodeMetrics]:
-        """Finalize metrics for vectorized environment.
-        
-        Args:
-            env: Gymnasium environment.
-            info: Info dictionary from step.
-            scene: Scene ID.
-            env_id: Environment ID.
-            seed: Random seed.
-            episode_id: Base episode ID.
-            steps_per_env: List of step counts per environment.
-            success_per_env: List of success flags per environment.
-            timeout_per_env: List of timeout flags per environment.
-            completion_time_per_env: List of completion times per environment.
-            num_envs: Number of environments.
-            
-        Returns:
-            List of EpisodeMetrics for all environments.
-        """
+        """Finalize metrics for vectorized environment."""
         for env_idx in range(num_envs):
             success_per_env[env_idx] = check_success(
                 env=env,
@@ -425,6 +474,7 @@ class EpisodeRunner:
                 timeout=timeout_per_env[env_idx],
                 env_id=env_id,
                 completion_time=completion_time_per_env[env_idx],
+                extra=self._summarise_locomotion(loco_buffers.get(env_idx, {})),
             )
             for env_idx in range(num_envs)
         ]
@@ -440,23 +490,9 @@ class EpisodeRunner:
         steps: int,
         success: bool,
         timeout: bool,
+        loco_buf: dict[str, list[float]] | None = None,
     ) -> EpisodeMetrics:
-        """Finalize metrics for single environment.
-        
-        Args:
-            env: Gymnasium environment.
-            info: Info dictionary from step.
-            scene: Scene ID.
-            env_id: Environment ID.
-            seed: Random seed.
-            episode_id: Episode ID.
-            steps: Step count.
-            success: Success flag.
-            timeout: Timeout flag.
-            
-        Returns:
-            EpisodeMetrics instance.
-        """
+        """Finalize metrics for single environment."""
         success = check_success(
             env=env,
             info=info,
@@ -478,5 +514,6 @@ class EpisodeRunner:
             timeout=timeout,
             env_id=env_id,
             completion_time=completion_time,
+            extra=self._summarise_locomotion(loco_buf) if loco_buf else {},
         )
 

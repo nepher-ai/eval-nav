@@ -1,0 +1,47 @@
+{
+  "score": 0.6456883660545706,
+  "log_dir": "E:\\Work\\001_Nepher\\eval-nav\\logs\\spot-waypointnav\\eval_run_20260306_140655",
+  "metadata": {
+    "task_name": "Nepher-Spot-WaypointNav-Envhub-Play-v0",
+    "scoring_version": "v2",
+    "scenes": [
+      "waypoint-benchmark-v1:0"
+    ],
+    "env_scenes": [
+      {
+        "env_id": "waypoint-benchmark-v1",
+        "scene": 0
+      }
+    ],
+    "seeds": [
+      42
+    ],
+    "num_episodes": 1,
+    "max_episode_steps": 450,
+    "total_episodes_run": 1,
+    "elapsed_seconds": 172.93885803222656,
+    "config": {
+      "task_name": "Nepher-Spot-WaypointNav-Envhub-Play-v0",
+      "task_module": "spotwaypointnav",
+      "env_scenes": [
+        {
+          "env_id": "waypoint-benchmark-v1",
+          "scene": 0
+        }
+      ],
+      "seeds": [
+        42
+      ],
+      "num_episodes": 1,
+      "max_episode_steps": 450,
+      "scoring_version": "v2",
+      "env_config": {},
+      "num_envs": 86,
+      "timeout_seconds": null,
+      "log_dir": "E:\\Work\\001_Nepher\\eval-nav\\logs\\spot-waypointnav\\eval_run_20260306_140655",
+      "enable_logging": true,
+      "policy_path": "E:\\IsaacLab\\source\\task-spot-waypointnav\\best_policy\\best_policy.pt"
+    }
+  },
+  "summary": "============================================================\nNavigation Evaluation Summary\n============================================================\n\nStatus: SUCCESS\nFinal Score: 0.6457 (normalized [0, 1])\n\nAggregate Metrics:\n------------------------------------------------------------\n  Total Episodes: 86\n  Successful: 73\n  Failed: 13\n  Timeouts: 0\n  Success Rate: 84.88%\n  Mean Completion Time: 76.26 steps\n  Std Completion Time: 17.72 steps\n  Mean Steps: 68.94\n  Std Steps: 25.25\n\nLocomotion Quality:\n------------------------------------------------------------\n  Mean Speed: 2.837 m/s\n  Max Speed: 5.106 m/s\n  Speed Std: 1.314 m/s\n  Mean Vertical Speed: 0.191 m/s\n  Mean Angular Speed: 0.844 rad/s\n  Angular Speed Std: 0.595 rad/s\n  Mean Roll/Pitch Rate: 0.556 rad/s\n  Walking (not running): NO \u2014 speed exceeds walking threshold\n\nEvaluation Metadata:\n------------------------------------------------------------\n  Task: Nepher-Spot-WaypointNav-Envhub-Play-v0\n  Scoring Version: v2\n  Scenes: ['waypoint-benchmark-v1:0']\n  Seeds: [42]\n  Episodes per Scene-Seed: 1\n  Total Episodes Run: 1\n  Elapsed Time: 172.94 seconds\n\nInterpretation:\n------------------------------------------------------------\n  Good performance. Room for improvement in success rate or speed.\n\n============================================================"
+}

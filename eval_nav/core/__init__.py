@@ -8,13 +8,14 @@
 from .evaluator import NavigationEvaluator
 from .episode_runner import EpisodeRunner
 from .reporter import EvaluationReporter
-from .scorer import V1Scorer, get_scorer
+from .scorer import V1Scorer, V2Scorer, get_scorer
 
 __all__ = [
     "NavigationEvaluator",
     "EpisodeRunner",
     "EvaluationReporter",
     "V1Scorer",
+    "V2Scorer",
     "get_scorer",
 ]
 
