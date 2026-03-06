@@ -130,11 +130,12 @@ class V2Scorer:
     W_TIME: float = 0.20
     W_LOCOMOTION: float = 0.30
 
-    # Spot walking speed envelope (m/s).  Speeds above *max_walking_speed*
-    # are treated as running; speeds below *min_useful_speed* indicate the
-    # robot is barely moving.
+    # Spot walking speed envelope (m/s).  Spot's physical top speed (1.6 m/s)
+    # *is* a walking gait — there is no separate running mode.  Speeds above
+    # the limit therefore indicate sim-physics anomalies, not gait changes.
     MAX_WALKING_SPEED: float = 1.6
     MIN_USEFUL_SPEED: float = 0.05
+    SIM_SPEED_TOLERANCE: float = 0.1     # (m/s) — headroom for brief sim overshoots
 
     # Thresholds above which the sub-component score drops to zero.
     MAX_SPEED_STD: float = 0.8          # (m/s) — higher ⇒ jerky pace
@@ -261,27 +262,32 @@ class V2Scorer:
     def _speed_compliance(
         self, mean_speed: float, max_speed: float, slope_factor: float = 1.0,
     ) -> float:
-        """1.0 when walking at a sensible pace, 0.0 when clearly running.
+        """1.0 when speed stays within the physical walking envelope.
 
-        *slope_factor* (from ``_slope_speed_factor``) scales the walking-speed
-        envelope so that slower movement on inclines is not penalised.
+        Spot's top speed (1.6 m/s) *is* a walking gait — there is no separate
+        running mode.  This rewards speeds inside the hardware envelope and
+        penalises anomalies (stuck, or sim-physics overshoots beyond the
+        physical limit).
+
+        *slope_factor* scales the envelope for inclines.
         """
         effective_max = self.MAX_WALKING_SPEED * slope_factor
 
         if mean_speed < self.MIN_USEFUL_SPEED:
             return 0.0
+
         if mean_speed <= effective_max:
             mean_ok = 1.0
         else:
             overshoot = (mean_speed - effective_max) / effective_max
-            mean_ok = max(0.0, 1.0 - overshoot)
+            mean_ok = max(0.0, 1.0 - overshoot * 2.0)
 
-        peak_limit = effective_max * 1.5
+        peak_limit = effective_max + self.SIM_SPEED_TOLERANCE
         if max_speed <= peak_limit:
             peak_ok = 1.0
         else:
             overshoot = (max_speed - peak_limit) / effective_max
-            peak_ok = max(0.0, 1.0 - overshoot)
+            peak_ok = max(0.0, 1.0 - overshoot * 5.0)
 
         return 0.7 * mean_ok + 0.3 * peak_ok
 
@@ -311,6 +317,7 @@ class V2Scorer:
             "locomotion_thresholds": {
                 "max_walking_speed": self.MAX_WALKING_SPEED,
                 "min_useful_speed": self.MIN_USEFUL_SPEED,
+                "sim_speed_tolerance": self.SIM_SPEED_TOLERANCE,
                 "max_speed_std": self.MAX_SPEED_STD,
                 "max_vertical_speed": self.MAX_VERTICAL_SPEED,
                 "max_roll_pitch_rate": self.MAX_ROLL_PITCH_RATE,
