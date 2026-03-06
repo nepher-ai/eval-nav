@@ -160,8 +160,7 @@ class V2Scorer:
         loco_component = self._locomotion_component(metrics, episodes)
 
         if loco_component is None:
-            # No locomotion data — fall back to V1 weights.
-            return float(0.7 * success_component + 0.3 * time_component)
+            return 0.0
 
         score = (
             self.W_SUCCESS * success_component
