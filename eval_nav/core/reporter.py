@@ -32,8 +32,9 @@ class EvaluationReporter:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(output_path, "w") as f:
-            json.dump(self.results, f, indent=2)
+        # Use UTF-8 with replacement to avoid encoding errors on non-ASCII content
+        with open(output_path, "w", encoding="utf-8", errors="replace") as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
     
     def generate_summary(self) -> str:
         """Generate human-readable text summary.
@@ -137,7 +138,8 @@ class EvaluationReporter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         summary = self.generate_summary()
-        with open(output_path, "w") as f:
+        # Ensure summary is always written as UTF-8 text, tolerating unicode characters
+        with open(output_path, "w", encoding="utf-8", errors="replace") as f:
             f.write(summary)
     
     def print_summary(self) -> None:

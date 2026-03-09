@@ -93,7 +93,8 @@ class EvalConfig:
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
         
-        with open(config_path, "r") as f:
+        # Read YAML configs as UTF-8 to support non-ASCII characters
+        with open(config_path, "r", encoding="utf-8", errors="replace") as f:
             data = yaml.safe_load(f)
         
         config = cls(**data)

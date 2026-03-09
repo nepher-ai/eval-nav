@@ -47,8 +47,9 @@ def _run_env_scene_worker(config_dict: dict, env_scene_combo: dict, checkpoint_p
     cfg = EvalConfig(**config_dict)
     evaluator = NavigationEvaluator(cfg, checkpoint_path=checkpoint_path, subprocess_mode=True)
     episodes = evaluator.run_campaign(policy=None)
-    with open(output_path, "w") as f:
-        json.dump([e.to_dict() for e in episodes], f)
+    # Persist episode results using UTF-8 to avoid encoding issues
+    with open(output_path, "w", encoding="utf-8", errors="replace") as f:
+        json.dump([e.to_dict() for e in episodes], f, ensure_ascii=False)
 
 
 class NavigationEvaluator:
@@ -224,7 +225,8 @@ class NavigationEvaluator:
                 p.join()
                 if p.exitcode != 0:
                     raise EvaluationRuntimeError(f"Subprocess failed for {tmp_path}")
-                with open(tmp_path, "r") as f:
+                # Read subprocess output JSON as UTF-8
+                with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
                     episode_dicts = json.load(f)
                 os.remove(tmp_path)
                 for ep_dict in episode_dicts:

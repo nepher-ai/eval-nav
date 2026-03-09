@@ -104,8 +104,9 @@ def main():
     
     config_path = run_dir / "config.yaml"
     config.log_dir = original_log_dir
-    with open(config_path, "w") as f:
-        yaml.dump(config.to_dict(), f, default_flow_style=False)
+    # Persist config using UTF-8 encoding to support any unicode content
+    with open(config_path, "w", encoding="utf-8", errors="replace") as f:
+        yaml.dump(config.to_dict(), f, default_flow_style=False, allow_unicode=True)
     
     if not args_cli.quiet:
         reporter.print_summary()
@@ -131,8 +132,9 @@ def main():
     else:
         result_json_path = Path("evaluation_result.json")
     try:
-        with open(result_json_path, "w") as f:
-            json.dump(result, f, indent=2)
+        # Write result JSON as UTF-8, preserving unicode characters
+        with open(result_json_path, "w", encoding="utf-8", errors="replace") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
         if not args_cli.quiet:
             print(f"  - Result: {result_json_path}")
     except IOError as e:
