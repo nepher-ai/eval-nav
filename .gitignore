@@ -71,4 +71,4 @@ logs/
 # Docker history
 .isaac-lab-docker-history
 results/
-evaluation_result.json1
+evaluation_result.json
