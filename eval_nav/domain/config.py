@@ -58,7 +58,7 @@ class EvalConfig:
     
     # Scoring
     scoring_version: str = "v1"
-    """Scoring version. 'v1' = success+time, 'v2' = success+time+locomotion quality."""
+    """Scoring version. 'v1' = success+time, 'v2' = success+time+locomotion, 'v3' = success-focused+time+stability."""
     
     # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)
@@ -78,6 +78,11 @@ class EvalConfig:
     policy_path: str | None = None
     """Path to policy checkpoint file. If None or "default", will attempt to find 
     "best_policy/best_policy.pt" in the task project folder."""
+    
+    enable_cameras: bool = False
+    """When True, ``scripts/evaluate.py`` passes ``--enable_cameras`` to Isaac Sim
+    before AppLauncher. Required for environments that spawn cameras (e.g. Spot
+    student with depth). CLI ``--enable_cameras`` still overrides if present."""
     
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> EvalConfig:
@@ -117,6 +122,7 @@ class EvalConfig:
             "log_dir": self.log_dir,
             "enable_logging": self.enable_logging,
             "policy_path": self.policy_path,
+            "enable_cameras": self.enable_cameras,
         }
     
     def validate(self) -> None:
@@ -140,8 +146,8 @@ class EvalConfig:
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
         
-        if self.scoring_version not in ("v1", "v2"):
-            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2'.")
+        if self.scoring_version not in ("v1", "v2", "v3"):
+            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2', 'v3'.")
         
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")

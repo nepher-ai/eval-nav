@@ -1,0 +1,48 @@
+# Evaluation configuration for task-spot-nav (goal navigation on obstacle terrain)
+#
+# Evaluates the Spot student goal-navigation policy on the obstacle-terrain-v1
+# envhub preset. Uses V3 scoring which emphasises success rate and quadruped
+# stability in cluttered environments.
+#
+# Student env spawns a depth camera — must enable Isaac Sim camera rendering.
+# This flag is read by scripts/evaluate.py before AppLauncher (equivalent to CLI --enable_cameras).
+
+enable_cameras: true
+
+task_name: "Nepher-Spot-Nav-Envhub-Student-Play-v0"
+
+# Python module to import for environment registration
+task_module: "spotnav"
+
+# Environment-scene combinations to evaluate
+env_scenes:
+  - env_id: "obstacle-terrain-sample"
+    scene: 0
+
+# Random seeds for reproducibility
+seeds:
+  - 42
+
+# Number of episodes per scene-seed combination
+num_episodes: 1
+
+# Maximum steps per episode (None = use environment default)
+max_episode_steps: 450
+
+# Number of parallel environments for evaluation (mandatory)
+num_envs: 300
+
+# Scoring version: v3 = success-focused + time + quadruped stability
+scoring_version: "v3"
+
+# Logging
+log_dir: "logs/spot-nav"
+enable_logging: true
+
+# Timeout for entire evaluation (seconds, None = no timeout)
+timeout_seconds: null
+
+# Policy checkpoint path (optional)
+# If "default" or not specified, will look for "best_policy/best_policy.pt"
+# in the task project folder (task-spot-nav)
+policy_path: "default"

@@ -20,6 +20,33 @@ from isaaclab.app import AppLauncher
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+def _apply_enable_cameras_from_config_yaml() -> None:
+    """If the eval YAML sets ``enable_cameras: true``, append ``--enable_cameras``.
+
+    AppLauncher is constructed before ``EvalConfig.from_yaml`` runs, so camera
+    enablement must be applied from the config file here (Isaac Sim requires
+    this flag when spawning cameras, e.g. Spot student depth).
+    """
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", type=str, default=None)
+    pre_args, _ = pre.parse_known_args()
+    if not pre_args.config:
+        return
+    path = Path(pre_args.config)
+    if not path.is_file():
+        return
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            data = yaml.safe_load(f) or {}
+        if data.get("enable_cameras") and "--enable_cameras" not in sys.argv:
+            sys.argv.append("--enable_cameras")
+    except Exception:
+        pass
+
+
+_apply_enable_cameras_from_config_yaml()
+
 parser = argparse.ArgumentParser(
     description="Evaluate IsaacLab navigation environments",
     formatter_class=argparse.RawDescriptionHelpFormatter,

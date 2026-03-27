@@ -326,11 +326,80 @@ class V2Scorer:
         }
 
 
-def get_scorer(version: str) -> V1Scorer | V2Scorer:
+class V3Scorer(V2Scorer):
+    """V3 Scoring System — success-focused with obstacle-terrain stability.
+
+    Designed for obstacle-terrain goal navigation where reaching the goal is
+    the primary signal and quadruped stability through cluttered environments
+    matters more than raw speed compliance.
+
+    Compared to V2:
+    - Success rate weight raised from 0.50 → 0.60
+    - Time efficiency lowered from 0.20 → 0.15
+    - Locomotion/stability lowered from 0.30 → 0.25
+    - Within stability: body stability is the dominant sub-score (obstacle
+      navigation rewards not-falling over speed)
+
+    Score = 0.60 * success + 0.15 * time_efficiency + 0.25 * stability_quality
+    """
+
+    W_SUCCESS: float = 0.60
+    W_TIME: float = 0.15
+    W_LOCOMOTION: float = 0.25
+
+    def _locomotion_component(
+        self,
+        metrics: AggregateMetrics,
+        episodes: list[EpisodeMetrics] | None,
+    ) -> float | None:
+        """Stability-focused scoring for obstacle navigation.
+
+        Sub-weights favour body stability (not bouncing / falling) over speed
+        compliance, reflecting that obstacle-terrain navigation naturally
+        causes slower, more cautious locomotion.
+        """
+        ex = metrics.extra
+        if not ex or "mean_speed" not in ex:
+            return None
+
+        mean_slope_deg = ex.get("mean_slope_deg", 0.0)
+        slope_factor = self._slope_speed_factor(mean_slope_deg)
+
+        speed_score = self._speed_compliance(
+            ex.get("mean_speed", 0.0), ex.get("max_speed", 0.0), slope_factor,
+        )
+        smoothness_score = self._smoothness(ex.get("speed_std", 0.0))
+        stability_score = self._body_stability(
+            ex.get("mean_vertical_speed", 0.0),
+            ex.get("mean_roll_pitch_rate", 0.0),
+        )
+        gait_score = self._gait_quality(ex.get("aerial_phase_fraction"))
+
+        if gait_score is not None:
+            return (
+                0.40 * stability_score
+                + 0.25 * gait_score
+                + 0.20 * smoothness_score
+                + 0.15 * speed_score
+            )
+        return 0.50 * stability_score + 0.30 * smoothness_score + 0.20 * speed_score
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+        d["version"] = "v3"
+        d["weights"] = {
+            "success_rate": self.W_SUCCESS,
+            "time_to_completion": self.W_TIME,
+            "stability_quality": self.W_LOCOMOTION,
+        }
+        return d
+
+
+def get_scorer(version: str) -> V1Scorer | V2Scorer | V3Scorer:
     """Get scorer by version.
     
     Args:
-        version: Scoring version ('v1' or 'v2').
+        version: Scoring version ('v1', 'v2', or 'v3').
         
     Returns:
         Scorer instance.
@@ -338,10 +407,8 @@ def get_scorer(version: str) -> V1Scorer | V2Scorer:
     Raises:
         ValueError: If version is not supported.
     """
-    if version == "v1":
-        return V1Scorer()
-    elif version == "v2":
-        return V2Scorer()
-    else:
-        raise ValueError(f"Unsupported scoring version: {version}. Supported: 'v1', 'v2'.")
+    scorers = {"v1": V1Scorer, "v2": V2Scorer, "v3": V3Scorer}
+    if version not in scorers:
+        raise ValueError(f"Unsupported scoring version: {version}. Supported: {sorted(scorers)}.")
+    return scorers[version]()
 
