@@ -327,38 +327,64 @@ class V2Scorer:
 
 
 class V3Scorer(V2Scorer):
-    """V3 Scoring System — success-focused with obstacle-terrain stability.
+    """V3 Scoring System — per-episode average with binary success gate.
 
-    Designed for obstacle-terrain goal navigation where reaching the goal is
-    the primary signal and quadruped stability through cluttered environments
-    matters more than raw speed compliance.
+    Designed for obstacle-terrain goal navigation: a failed episode scores 0.
+    Successful episodes score ``0.5 * time_efficiency + 0.5 * stability_quality``,
+    then the overall score is the **mean** of per-episode scores.
 
-    Compared to V2:
-    - Success rate weight raised from 0.50 → 0.60
-    - Time efficiency lowered from 0.20 → 0.15
-    - Locomotion/stability lowered from 0.30 → 0.25
-    - Within stability: body stability is the dominant sub-score (obstacle
-      navigation rewards not-falling over speed)
-
-    Score = 0.60 * success + 0.15 * time_efficiency + 0.25 * stability_quality
+    When locomotion aggregates are unavailable (same condition as V2), the
+    final score is 0.0.  If a successful episode lacks per-episode ``extra``
+    locomotion data, aggregate stability quality is used as a fallback for
+    that episode.
     """
 
-    W_SUCCESS: float = 0.60
-    W_TIME: float = 0.15
-    W_LOCOMOTION: float = 0.25
+    W_EPISODE_TIME: float = 0.5
+    W_EPISODE_STABILITY: float = 0.5
 
-    def _locomotion_component(
+    def compute_score_from_steps(
         self,
         metrics: AggregateMetrics,
-        episodes: list[EpisodeMetrics] | None,
-    ) -> float | None:
-        """Stability-focused scoring for obstacle navigation.
+        max_episode_steps: int,
+        episodes: list[EpisodeMetrics] | None = None,
+    ) -> float:
+        if not episodes:
+            return 0.0
 
-        Sub-weights favour body stability (not bouncing / falling) over speed
-        compliance, reflecting that obstacle-terrain navigation naturally
-        causes slower, more cautious locomotion.
-        """
-        ex = metrics.extra
+        agg_stability = self._locomotion_component(metrics, episodes)
+        if agg_stability is None:
+            return 0.0
+
+        episode_scores: list[float] = []
+        for ep in episodes:
+            if not ep.success:
+                episode_scores.append(0.0)
+                continue
+            time_eff = self._episode_time_efficiency(ep, max_episode_steps)
+            stab = self._stability_quality_from_extra(ep.extra)
+            if stab is None:
+                stab = agg_stability
+            ep_score = (
+                self.W_EPISODE_TIME * time_eff
+                + self.W_EPISODE_STABILITY * stab
+            )
+            episode_scores.append(float(ep_score))
+
+        return float(np.mean(episode_scores)) if episode_scores else 0.0
+
+    compute_score = compute_score_from_steps
+
+    def _episode_time_efficiency(
+        self, ep: EpisodeMetrics, max_episode_steps: int,
+    ) -> float:
+        """Same normalization as aggregate time component, for one episode."""
+        norm = ep.steps / max_episode_steps
+        if norm > self.max_normalized_time:
+            return 0.0
+        return 1.0 - norm / self.max_normalized_time
+
+    def _stability_quality_from_extra(self, ex: dict[str, Any]) -> float | None:
+        """V3 stability blend from a single episode or aggregate ``extra`` dict."""
         if not ex or "mean_speed" not in ex:
             return None
 
@@ -376,21 +402,32 @@ class V3Scorer(V2Scorer):
         gait_score = self._gait_quality(ex.get("aerial_phase_fraction"))
 
         if gait_score is not None:
-            return (
+            return float(
                 0.40 * stability_score
                 + 0.25 * gait_score
                 + 0.20 * smoothness_score
                 + 0.15 * speed_score
             )
-        return 0.50 * stability_score + 0.30 * smoothness_score + 0.20 * speed_score
+        return float(
+            0.50 * stability_score + 0.30 * smoothness_score + 0.20 * speed_score
+        )
+
+    def _locomotion_component(
+        self,
+        metrics: AggregateMetrics,
+        episodes: list[EpisodeMetrics] | None,
+    ) -> float | None:
+        """Aggregate stability quality (also used as fallback per episode)."""
+        return self._stability_quality_from_extra(metrics.extra or {})
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d["version"] = "v3"
         d["weights"] = {
-            "success_rate": self.W_SUCCESS,
-            "time_to_completion": self.W_TIME,
-            "stability_quality": self.W_LOCOMOTION,
+            "per_episode_failed": 0.0,
+            "time_efficiency": self.W_EPISODE_TIME,
+            "stability_quality": self.W_EPISODE_STABILITY,
+            "overall": "mean(per_episode_scores)",
         }
         return d
 

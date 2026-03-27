@@ -58,7 +58,7 @@ class EvalConfig:
     
     # Scoring
     scoring_version: str = "v1"
-    """Scoring version. 'v1' = success+time, 'v2' = success+time+locomotion, 'v3' = success-focused+time+stability."""
+    """Scoring version. 'v1' = success+time aggregate, 'v2' = success+time+locomotion aggregate, 'v3' = mean per-episode (fail=0; success=time+stability)."""
     
     # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)

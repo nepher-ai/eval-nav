@@ -27,7 +27,7 @@ seeds:
 num_episodes: 1
 
 # Maximum steps per episode (None = use environment default)
-max_episode_steps: 450
+max_episode_steps: 150
 
 # Number of parallel environments for evaluation (mandatory)
 num_envs: 300
