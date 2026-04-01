@@ -143,11 +143,8 @@ def main():
         print(f"  - Config: {config_path}")
         print(f"  - NumPy state logs: {run_dir}/*.npy")
     
-    if results.get("status") != "SUCCESS":
-        sys.exit(1)
-    
     result = {
-        "score": results.get("score"),
+        "score": results.get("score", 0),
         "log_dir": str(run_dir),
         "metadata": results.get("metadata", {}),
         "summary": reporter.generate_summary(),
@@ -159,13 +156,15 @@ def main():
     else:
         result_json_path = Path("evaluation_result.json")
     try:
-        # Write result JSON as UTF-8, preserving unicode characters
         with open(result_json_path, "w", encoding="utf-8", errors="replace") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
         if not args_cli.quiet:
             print(f"  - Result: {result_json_path}")
     except IOError as e:
         print(f"[WARNING] Failed to save result JSON: {e}", file=sys.stderr)
+    
+    if results.get("status") != "SUCCESS":
+        sys.exit(1)
     
     return result
 
