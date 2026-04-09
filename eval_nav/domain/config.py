@@ -56,9 +56,15 @@ class EvalConfig:
     max_episode_steps: int | None = None
     """Maximum steps per episode. If None, uses environment default."""
     
+    max_episode_time_s: float | None = None
+    """Physical time budget in seconds for the episode.  When set, V3+ scorers
+    normalize time efficiency against this instead of ``max_episode_steps``.
+    If None, the evaluator auto-detects from the environment
+    (``episode_length_s``) or derives it from ``max_episode_steps * step_dt``."""
+    
     # Scoring
     scoring_version: str = "v1"
-    """Scoring version. 'v1' = success+time aggregate, 'v2' = success+time+locomotion aggregate, 'v3' = mean per-episode (fail=0; success=time+stability)."""
+    """Scoring version. 'v1' = success+time aggregate, 'v2' = success+time+locomotion aggregate, 'v3' = mean per-episode (fail=0; success=time+stability), 'v4' = v3+directness (lateral velocity penalty)."""
     
     # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)
@@ -115,6 +121,7 @@ class EvalConfig:
             "seeds": self.seeds,
             "num_episodes": self.num_episodes,
             "max_episode_steps": self.max_episode_steps,
+            "max_episode_time_s": self.max_episode_time_s,
             "scoring_version": self.scoring_version,
             "env_config": self.env_config,
             "num_envs": self.num_envs,
@@ -146,8 +153,11 @@ class EvalConfig:
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
         
-        if self.scoring_version not in ("v1", "v2", "v3"):
-            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2', 'v3'.")
+        if self.scoring_version not in ("v1", "v2", "v3", "v4"):
+            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2', 'v3', 'v4'.")
+        
+        if self.max_episode_time_s is not None and self.max_episode_time_s <= 0:
+            raise ValueError("max_episode_time_s must be > 0 if specified")
         
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")

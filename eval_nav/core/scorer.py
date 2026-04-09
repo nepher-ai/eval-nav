@@ -59,13 +59,21 @@ class V1Scorer:
         
         return float(final_score)
     
-    def compute_score_from_steps(self, metrics: AggregateMetrics, max_episode_steps: int, episodes: list[EpisodeMetrics] | None = None) -> float:
+    def compute_score_from_steps(
+        self,
+        metrics: AggregateMetrics,
+        max_episode_steps: int,
+        episodes: list[EpisodeMetrics] | None = None,
+        *,
+        max_episode_time_s: float | None = None,  # noqa: ARG002 — accepted for API compat
+    ) -> float:
         """Compute score using steps instead of time (fallback).
         
         Args:
             metrics: Aggregate metrics from evaluation.
             max_episode_steps: Maximum steps per episode.
             episodes: Optional list of EpisodeMetrics for computing mean successful steps.
+            max_episode_time_s: Unused in V1 — accepted for scorer API compatibility.
             
         Returns:
             Final score in [0, 1] range.
@@ -155,6 +163,8 @@ class V2Scorer:
         metrics: AggregateMetrics,
         max_episode_steps: int,
         episodes: list[EpisodeMetrics] | None = None,
+        *,
+        max_episode_time_s: float | None = None,  # noqa: ARG002 — accepted for API compat
     ) -> float:
         success_component = metrics.success_rate
         time_component = self._time_component(metrics, max_episode_steps, episodes)
@@ -333,6 +343,11 @@ class V3Scorer(V2Scorer):
     Successful episodes score ``0.5 * time_efficiency + 0.5 * stability_quality``,
     then the overall score is the **mean** of per-episode scores.
 
+    When ``max_episode_time_s`` is provided the time-efficiency component is
+    computed from physical seconds (``completion_time / max_episode_time_s``),
+    making the score invariant to ``decimation`` changes.  Falls back to
+    step-based normalization when seconds data is unavailable.
+
     When locomotion aggregates are unavailable (same condition as V2), the
     final score is 0.0.  If a successful episode lacks per-episode ``extra``
     locomotion data, aggregate stability quality is used as a fallback for
@@ -347,6 +362,8 @@ class V3Scorer(V2Scorer):
         metrics: AggregateMetrics,
         max_episode_steps: int,
         episodes: list[EpisodeMetrics] | None = None,
+        *,
+        max_episode_time_s: float | None = None,
     ) -> float:
         if not episodes:
             return 0.0
@@ -360,7 +377,9 @@ class V3Scorer(V2Scorer):
             if not ep.success:
                 episode_scores.append(0.0)
                 continue
-            time_eff = self._episode_time_efficiency(ep, max_episode_steps)
+            time_eff = self._episode_time_efficiency(
+                ep, max_episode_steps, max_episode_time_s=max_episode_time_s,
+            )
             stab = self._stability_quality_from_extra(ep.extra)
             if stab is None:
                 stab = agg_stability
@@ -375,10 +394,23 @@ class V3Scorer(V2Scorer):
     compute_score = compute_score_from_steps
 
     def _episode_time_efficiency(
-        self, ep: EpisodeMetrics, max_episode_steps: int,
+        self,
+        ep: EpisodeMetrics,
+        max_episode_steps: int,
+        *,
+        max_episode_time_s: float | None = None,
     ) -> float:
-        """Same normalization as aggregate time component, for one episode."""
-        norm = ep.steps / max_episode_steps
+        """Time efficiency in [0, 1].
+
+        When *max_episode_time_s* is available and the episode recorded
+        ``completion_time`` in seconds, normalizes against physical time so
+        the score is independent of the environment's ``decimation`` setting.
+        Falls back to step-based normalization otherwise.
+        """
+        if max_episode_time_s and ep.completion_time is not None:
+            norm = ep.completion_time / max_episode_time_s
+        else:
+            norm = ep.steps / max_episode_steps
         if norm > self.max_normalized_time:
             return 0.0
         return 1.0 - norm / self.max_normalized_time
@@ -432,11 +464,100 @@ class V3Scorer(V2Scorer):
         return d
 
 
-def get_scorer(version: str) -> V1Scorer | V2Scorer | V3Scorer:
+class V4Scorer(V3Scorer):
+    """V4 Scoring System — V3 plus lateral-velocity (directness) quality.
+
+    Extends V3 by adding a *directness* component that penalises unnecessary
+    lateral (side-stepping) motion.  Ideal navigation moves predominantly
+    forward; lateral drift wastes energy and indicates the policy is
+    exploiting the velocity envelope rather than turning and walking straight.
+
+    Per-episode score (successful):
+        ``W_EPISODE_TIME * time_eff + W_EPISODE_STABILITY * stability + W_EPISODE_DIRECTNESS * directness``
+
+    Failed episodes still score 0.  Overall score is the mean of per-episode
+    scores (same as V3).
+    """
+
+    W_EPISODE_TIME: float = 0.40
+    W_EPISODE_STABILITY: float = 0.40
+    W_EPISODE_DIRECTNESS: float = 0.20
+
+    MAX_LATERAL_SPEED: float = 0.5  # (m/s) — matches Spot's lateral velocity limit
+
+    def compute_score_from_steps(
+        self,
+        metrics: AggregateMetrics,
+        max_episode_steps: int,
+        episodes: list[EpisodeMetrics] | None = None,
+        *,
+        max_episode_time_s: float | None = None,
+    ) -> float:
+        if not episodes:
+            return 0.0
+
+        agg_stability = self._locomotion_component(metrics, episodes)
+        if agg_stability is None:
+            return 0.0
+
+        agg_directness = self._directness_quality(metrics.extra or {})
+
+        episode_scores: list[float] = []
+        for ep in episodes:
+            if not ep.success:
+                episode_scores.append(0.0)
+                continue
+            time_eff = self._episode_time_efficiency(
+                ep, max_episode_steps, max_episode_time_s=max_episode_time_s,
+            )
+            stab = self._stability_quality_from_extra(ep.extra)
+            if stab is None:
+                stab = agg_stability
+            direct = self._directness_quality(ep.extra)
+            if direct is None:
+                direct = agg_directness if agg_directness is not None else 1.0
+            ep_score = (
+                self.W_EPISODE_TIME * time_eff
+                + self.W_EPISODE_STABILITY * stab
+                + self.W_EPISODE_DIRECTNESS * direct
+            )
+            episode_scores.append(float(ep_score))
+
+        return float(np.mean(episode_scores)) if episode_scores else 0.0
+
+    compute_score = compute_score_from_steps
+
+    def _directness_quality(self, ex: dict[str, Any]) -> float | None:
+        """1.0 when motion is purely forward, 0.0 at max lateral speed.
+
+        Returns None when lateral speed data is unavailable.
+        """
+        mean_lat = ex.get("mean_lateral_speed")
+        if mean_lat is None:
+            return None
+        if self.MAX_LATERAL_SPEED <= 0:
+            return 1.0
+        return max(0.0, 1.0 - mean_lat / self.MAX_LATERAL_SPEED)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+        d["version"] = "v4"
+        d["weights"] = {
+            "per_episode_failed": 0.0,
+            "time_efficiency": self.W_EPISODE_TIME,
+            "stability_quality": self.W_EPISODE_STABILITY,
+            "directness_quality": self.W_EPISODE_DIRECTNESS,
+            "overall": "mean(per_episode_scores)",
+        }
+        d["locomotion_thresholds"]["max_lateral_speed"] = self.MAX_LATERAL_SPEED
+        return d
+
+
+def get_scorer(version: str) -> V1Scorer | V2Scorer | V3Scorer | V4Scorer:
     """Get scorer by version.
     
     Args:
-        version: Scoring version ('v1', 'v2', or 'v3').
+        version: Scoring version ('v1', 'v2', 'v3', or 'v4').
         
     Returns:
         Scorer instance.
@@ -444,7 +565,7 @@ def get_scorer(version: str) -> V1Scorer | V2Scorer | V3Scorer:
     Raises:
         ValueError: If version is not supported.
     """
-    scorers = {"v1": V1Scorer, "v2": V2Scorer, "v3": V3Scorer}
+    scorers = {"v1": V1Scorer, "v2": V2Scorer, "v3": V3Scorer, "v4": V4Scorer}
     if version not in scorers:
         raise ValueError(f"Unsupported scoring version: {version}. Supported: {sorted(scorers)}.")
     return scorers[version]()

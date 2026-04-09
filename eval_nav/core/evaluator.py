@@ -122,7 +122,11 @@ class NavigationEvaluator:
             print(f"[INFO] Aggregate: {aggregate}")
 
             max_steps = self.config.max_episode_steps or 900
-            score = self.scorer.compute_score_from_steps(aggregate, max_steps, episodes)
+            max_episode_time_s = self._resolve_max_episode_time_s(episodes, max_steps)
+            score = self.scorer.compute_score_from_steps(
+                aggregate, max_steps, episodes,
+                max_episode_time_s=max_episode_time_s,
+            )
             results = {
                 "status": EvaluationStatus.SUCCESS.value,
                 "score": score,
@@ -291,6 +295,32 @@ class NavigationEvaluator:
 
         return episodes
     
+    def _resolve_max_episode_time_s(
+        self,
+        episodes: list[EpisodeMetrics],
+        max_steps: int,
+    ) -> float | None:
+        """Resolve the physical time budget (seconds) for scoring.
+
+        Priority:
+          1. Explicit ``config.max_episode_time_s``
+          2. ``step_dt`` recorded in episode extras × ``max_steps``
+          3. None — scorer falls back to step-based normalization
+        """
+        if self.config.max_episode_time_s is not None:
+            return self.config.max_episode_time_s
+
+        step_dt: float | None = None
+        for ep in episodes:
+            step_dt = ep.extra.get("step_dt")
+            if step_dt is not None:
+                break
+
+        if step_dt is not None:
+            return max_steps * step_dt
+
+        return None
+
     def _get_metadata(self) -> dict[str, Any]:
         """Get evaluation metadata.
         
@@ -312,6 +342,7 @@ class NavigationEvaluator:
             "seeds": self.config.seeds,
             "num_episodes": self.config.num_episodes,
             "max_episode_steps": self.config.max_episode_steps,
+            "max_episode_time_s": self.config.max_episode_time_s,
             "total_episodes_run": num_combos * len(self.config.seeds) * self.config.num_episodes,
             "elapsed_seconds": elapsed,
             "config": self.config.to_dict(),

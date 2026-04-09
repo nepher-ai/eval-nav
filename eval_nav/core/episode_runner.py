@@ -80,6 +80,10 @@ class EpisodeRunner:
             "angular_speed_std": float(np.std(buf["yaw_rate"])),
             "mean_roll_pitch_rate": float(np.mean(buf["roll_pitch_rate"])),
         }
+        if "lateral_speed" in buf:
+            lat = np.asarray(buf["lateral_speed"])
+            summary["mean_lateral_speed"] = float(lat.mean())
+            summary["max_lateral_speed"] = float(lat.max())
         if "feet_in_contact" in buf:
             feet = np.asarray(buf["feet_in_contact"])
             summary["mean_feet_in_contact"] = float(feet.mean())
@@ -117,6 +121,7 @@ class EpisodeRunner:
         try:
             obs, info = env.reset(seed=seed)
             max_steps = self.config.max_episode_steps or getattr(env.unwrapped, "max_episode_length", 900)
+            step_dt: float | None = getattr(env.unwrapped, "step_dt", None)
 
             num_envs = self._detect_num_envs(env, obs)
             is_vectorized = num_envs > 1
@@ -214,12 +219,12 @@ class EpisodeRunner:
                 return self._finalize_vectorized_metrics(
                     env, info, scene, env_id, seed, episode_id, steps_per_env,
                     success_per_env, timeout_per_env, completion_time_per_env, num_envs,
-                    loco_buffers,
+                    loco_buffers, step_dt=step_dt,
                 )
             else:
                 return self._finalize_single_metrics(
                     env, info, scene, env_id, seed, episode_id, steps, success, timeout,
-                    loco_buffers.get(0, {}),
+                    loco_buffers.get(0, {}), step_dt=step_dt,
                 )
             
         except Exception as e:
@@ -450,6 +455,7 @@ class EpisodeRunner:
         completion_time_per_env: list[float | None],
         num_envs: int,
         loco_buffers: dict[int, dict[str, list[float]]],
+        step_dt: float | None = None,
     ) -> list[EpisodeMetrics]:
         """Finalize metrics for vectorized environment."""
         for env_idx in range(num_envs):
@@ -462,10 +468,15 @@ class EpisodeRunner:
             )
             
             if success_per_env[env_idx] and not timeout_per_env[env_idx]:
-                completion_time_per_env[env_idx] = float(steps_per_env[env_idx])
+                raw_steps = float(steps_per_env[env_idx])
+                completion_time_per_env[env_idx] = raw_steps * step_dt if step_dt else raw_steps
         
-        return [
-            EpisodeMetrics(
+        results: list[EpisodeMetrics] = []
+        for env_idx in range(num_envs):
+            extra = self._summarise_locomotion(loco_buffers.get(env_idx, {}))
+            if step_dt is not None:
+                extra["step_dt"] = step_dt
+            results.append(EpisodeMetrics(
                 episode_id=episode_id + env_idx,
                 scene=scene,
                 seed=seed,
@@ -474,10 +485,9 @@ class EpisodeRunner:
                 timeout=timeout_per_env[env_idx],
                 env_id=env_id,
                 completion_time=completion_time_per_env[env_idx],
-                extra=self._summarise_locomotion(loco_buffers.get(env_idx, {})),
-            )
-            for env_idx in range(num_envs)
-        ]
+                extra=extra,
+            ))
+        return results
     
     def _finalize_single_metrics(
         self,
@@ -491,6 +501,7 @@ class EpisodeRunner:
         success: bool,
         timeout: bool,
         loco_buf: dict[str, list[float]] | None = None,
+        step_dt: float | None = None,
     ) -> EpisodeMetrics:
         """Finalize metrics for single environment."""
         success = check_success(
@@ -503,7 +514,12 @@ class EpisodeRunner:
         
         completion_time = None
         if success and not timeout:
-            completion_time = float(steps)
+            raw_steps = float(steps)
+            completion_time = raw_steps * step_dt if step_dt else raw_steps
+        
+        extra = self._summarise_locomotion(loco_buf) if loco_buf else {}
+        if step_dt is not None:
+            extra["step_dt"] = step_dt
         
         return EpisodeMetrics(
             episode_id=episode_id,
@@ -514,6 +530,6 @@ class EpisodeRunner:
             timeout=timeout,
             env_id=env_id,
             completion_time=completion_time,
-            extra=self._summarise_locomotion(loco_buf) if loco_buf else {},
+            extra=extra,
         )
 

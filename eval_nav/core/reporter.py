@@ -73,16 +73,21 @@ class EvaluationReporter:
             lines.append(f"  Timeouts: {metrics.get('timeout_episodes', 0)}")
             lines.append(f"  Success Rate: {metrics.get('success_rate', 0.0):.2%}")
             
+            extra = metrics.get("extra", {})
+            step_dt = extra.get("step_dt")
+            time_unit = "s" if step_dt else "steps"
+
             if metrics.get("mean_completion_time") is not None:
-                lines.append(f"  Mean Completion Time: {metrics['mean_completion_time']:.2f} steps")
+                lines.append(f"  Mean Completion Time: {metrics['mean_completion_time']:.2f} {time_unit}")
                 if metrics.get("std_completion_time") is not None:
-                    lines.append(f"  Std Completion Time: {metrics['std_completion_time']:.2f} steps")
+                    lines.append(f"  Std Completion Time: {metrics['std_completion_time']:.2f} {time_unit}")
             
             lines.append(f"  Mean Steps: {metrics.get('mean_steps', 0.0):.2f}")
             if metrics.get("std_steps") is not None:
                 lines.append(f"  Std Steps: {metrics['std_steps']:.2f}")
+            if step_dt is not None:
+                lines.append(f"  Step dt: {step_dt:.4f} s")
             
-            extra = metrics.get("extra", {})
             if extra and "mean_speed" in extra:
                 lines.append("")
                 lines.append("Locomotion Quality:")
@@ -94,6 +99,9 @@ class EvaluationReporter:
                 lines.append(f"  Mean Angular Speed: {extra.get('mean_angular_speed', 0.0):.3f} rad/s")
                 lines.append(f"  Angular Speed Std: {extra.get('angular_speed_std', 0.0):.3f} rad/s")
                 lines.append(f"  Mean Roll/Pitch Rate: {extra.get('mean_roll_pitch_rate', 0.0):.3f} rad/s")
+                if "mean_lateral_speed" in extra:
+                    lines.append(f"  Mean Lateral Speed: {extra['mean_lateral_speed']:.3f} m/s")
+                    lines.append(f"  Max Lateral Speed: {extra.get('max_lateral_speed', 0.0):.3f} m/s")
                 walking = extra['mean_speed'] <= 1.6
                 lines.append(f"  Walking (not running): {'YES' if walking else 'NO — speed exceeds walking threshold'}")
             lines.append("")
@@ -108,6 +116,8 @@ class EvaluationReporter:
             lines.append(f"  Seeds: {metadata.get('seeds', [])}")
             lines.append(f"  Episodes per Scene-Seed: {metadata.get('num_episodes', 0)}")
             lines.append(f"  Total Episodes Run: {metadata.get('total_episodes_run', 0)}")
+            if metadata.get("max_episode_time_s") is not None:
+                lines.append(f"  Max Episode Time: {metadata['max_episode_time_s']:.2f} s")
             if "elapsed_seconds" in metadata:
                 lines.append(f"  Elapsed Time: {metadata['elapsed_seconds']:.2f} seconds")
             lines.append("")

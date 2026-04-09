@@ -29,6 +29,11 @@ num_episodes: 1
 # Maximum steps per episode (None = use environment default)
 max_episode_steps: 150
 
+# Physical time budget in seconds (decimation-invariant scoring).
+# When set, V3 scorer normalizes against this instead of max_episode_steps.
+# Matches the environment's episode_length_s.
+max_episode_time_s: 60.0
+
 # Number of parallel environments for evaluation (mandatory)
 num_envs: 300
 
