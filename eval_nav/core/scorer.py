@@ -465,24 +465,30 @@ class V3Scorer(V2Scorer):
 
 
 class V4Scorer(V3Scorer):
-    """V4 Scoring System — V3 plus lateral-velocity (directness) quality.
+    """V4 Scoring System — success-rate-amplified quality with directness.
 
-    Extends V3 by adding a *directness* component that penalises unnecessary
-    lateral (side-stepping) motion.  Ideal navigation moves predominantly
-    forward; lateral drift wastes energy and indicates the policy is
-    exploiting the velocity envelope rather than turning and walking straight.
+    Builds on V3's per-episode quality blend (time efficiency, stability,
+    directness) but restructures the final aggregation so that **success rate
+    is an explicit, first-class factor** instead of only entering implicitly
+    via zeros for failures.
 
-    Per-episode score (successful):
-        ``W_EPISODE_TIME * time_eff + W_EPISODE_STABILITY * stability + W_EPISODE_DIRECTNESS * directness``
+    Per-episode quality (successful only):
+        ``quality = W_TIME * time_eff + W_STABILITY * stability + W_DIRECTNESS * directness``
 
-    Failed episodes still score 0.  Overall score is the mean of per-episode
-    scores (same as V3).
+    Final score:
+        ``success_rate × (W_SUCCESS_BONUS + (1 − W_SUCCESS_BONUS) × mean_quality)``
+
+    ``W_SUCCESS_BONUS`` (default 0.25) gives each success a guaranteed floor
+    credit, compressing quality's range and raising success rate's marginal
+    influence to be comparable to quality's.  Failed episodes contribute
+    nothing; quality is averaged **only** over successful episodes.
     """
 
     W_EPISODE_TIME: float = 0.40
     W_EPISODE_STABILITY: float = 0.40
     W_EPISODE_DIRECTNESS: float = 0.20
 
+    W_SUCCESS_BONUS: float = 0.25
     MAX_LATERAL_SPEED: float = 0.5  # (m/s) — matches Spot's lateral velocity limit
 
     def compute_score_from_steps(
@@ -502,10 +508,9 @@ class V4Scorer(V3Scorer):
 
         agg_directness = self._directness_quality(metrics.extra or {})
 
-        episode_scores: list[float] = []
+        success_quality: list[float] = []
         for ep in episodes:
             if not ep.success:
-                episode_scores.append(0.0)
                 continue
             time_eff = self._episode_time_efficiency(
                 ep, max_episode_steps, max_episode_time_s=max_episode_time_s,
@@ -516,14 +521,21 @@ class V4Scorer(V3Scorer):
             direct = self._directness_quality(ep.extra)
             if direct is None:
                 direct = agg_directness if agg_directness is not None else 1.0
-            ep_score = (
+            q = (
                 self.W_EPISODE_TIME * time_eff
                 + self.W_EPISODE_STABILITY * stab
                 + self.W_EPISODE_DIRECTNESS * direct
             )
-            episode_scores.append(float(ep_score))
+            success_quality.append(float(q))
 
-        return float(np.mean(episode_scores)) if episode_scores else 0.0
+        if not success_quality:
+            return 0.0
+
+        success_rate = len(success_quality) / len(episodes)
+        mean_quality = float(np.mean(success_quality))
+        return success_rate * (
+            self.W_SUCCESS_BONUS + (1.0 - self.W_SUCCESS_BONUS) * mean_quality
+        )
 
     compute_score = compute_score_from_steps
 
@@ -543,11 +555,11 @@ class V4Scorer(V3Scorer):
         d = super().to_dict()
         d["version"] = "v4"
         d["weights"] = {
-            "per_episode_failed": 0.0,
+            "success_bonus": self.W_SUCCESS_BONUS,
             "time_efficiency": self.W_EPISODE_TIME,
             "stability_quality": self.W_EPISODE_STABILITY,
             "directness_quality": self.W_EPISODE_DIRECTNESS,
-            "overall": "mean(per_episode_scores)",
+            "overall": "success_rate * (W_SUCCESS_BONUS + (1 - W_SUCCESS_BONUS) * mean_quality)",
         }
         d["locomotion_thresholds"]["max_lateral_speed"] = self.MAX_LATERAL_SPEED
         return d

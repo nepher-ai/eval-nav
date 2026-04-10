@@ -16,7 +16,7 @@ task_module: "spotnav"
 
 # Environment-scene combinations to evaluate
 env_scenes:
-  - env_id: "obstacle-terrain-sample"
+  - env_id: "obstacle-terrain-v3"
     scene: 0
 
 # Random seeds for reproducibility
@@ -38,7 +38,7 @@ max_episode_time_s: 60.0
 num_envs: 300
 
 # Scoring version: v3 = success-focused + time + quadruped stability
-scoring_version: "v3"
+scoring_version: "v4"
 
 # Logging
 log_dir: "logs/spot-nav"
