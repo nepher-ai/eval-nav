@@ -1,8 +1,8 @@
 # Evaluation configuration for task-spot-nav (goal navigation on obstacle terrain)
 #
 # Evaluates the Spot student goal-navigation policy on the obstacle-terrain-v1
-# envhub preset. Uses V3 scoring which emphasises success rate and quadruped
-# stability in cluttered environments.
+# envhub preset. Uses V4 scoring (success-rate-amplified quality + directness;
+# builds on V3 per-episode signals). Requires eval-nav that supports scoring v4.
 #
 # Student env spawns a depth camera — must enable Isaac Sim camera rendering.
 # This flag is read by scripts/evaluate.py before AppLauncher (equivalent to CLI --enable_cameras).
@@ -30,7 +30,7 @@ num_episodes: 1
 max_episode_steps: 150
 
 # Physical time budget in seconds (decimation-invariant scoring).
-# When set, V3 scorer normalizes against this instead of max_episode_steps.
+# When set, V3/V4 scorers normalize against this instead of max_episode_steps.
 # Matches the environment's episode_length_s.
 max_episode_time_s: 60.0
 
