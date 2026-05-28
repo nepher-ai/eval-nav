@@ -28,7 +28,8 @@ max_episode_steps: 450
 num_envs: 86
 
 # Scoring version: v2 adds locomotion quality (walking stability check)
-scoring_version: "v2"
+task_type: "navigation.waypoint"
+scoring_version: "v2"  # legacy alias kept for reference
 
 # Logging
 log_dir: "logs/spot-waypointnav"

@@ -1,4 +1,4 @@
-# Copyright (c) 2026, Nepher AI
+# Copyright (c) 2026, Nepher Robotics
 # All rights reserved.
 #
 # SPDX-License-Identifier: Proprietary
@@ -72,7 +72,7 @@ class NavigationEvaluator:
         """
         config.validate()
         self.config = config
-        self.scorer = get_scorer(config.scoring_version)
+        self.scorer = get_scorer(config.effective_scorer_key)
         self.start_time: float | None = None
         self.checkpoint_path = checkpoint_path
         self._policy = None  # Will be loaded lazily
@@ -336,6 +336,7 @@ class NavigationEvaluator:
         
         return {
             "task_name": self.config.task_name,
+            "task_type": self.config.task_type,
             "scoring_version": self.config.scoring_version,
             "scenes": scenes,
             "env_scenes": self.config.env_scenes,

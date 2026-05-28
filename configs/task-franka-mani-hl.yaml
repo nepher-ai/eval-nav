@@ -37,7 +37,8 @@ max_episode_time_s: 20.0
 num_envs: 30
 
 # Scoring: V1 = success rate (70%) + time efficiency (30%)
-scoring_version: "v1"
+task_type: "manipulation.pick_place"
+# scoring_version: "v1"  # legacy alias kept for reference
 
 # Logging
 log_dir: "logs/franka-mani-hl"

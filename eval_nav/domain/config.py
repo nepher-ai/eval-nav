@@ -1,4 +1,4 @@
-# Copyright (c) 2026, Nepher AI
+# Copyright (c) 2026, Nepher Robotics
 # All rights reserved.
 #
 # SPDX-License-Identifier: Proprietary
@@ -63,8 +63,29 @@ class EvalConfig:
     (``episode_length_s``) or derives it from ``max_episode_steps * step_dt``."""
     
     # Scoring
+    task_type: str | None = None
+    """Semantic task type for scorer selection.  Preferred over ``scoring_version``.
+
+    Supported values:
+    - ``'navigation.simple'``   — success + time; no locomotion required
+                                  (animal waypoint nav, leatherback waypoint nav)
+    - ``'navigation.waypoint'`` — success + time + locomotion quality
+                                  (Spot waypoint benchmark)
+    - ``'navigation.goal'``     — success-rate-amplified quality + path directness
+                                  (Spot obstacle-terrain goal nav)
+    - ``'manipulation.pick_place'`` — task success + completion speed
+                                  (Franka high-level pick-and-place)
+    """
+
     scoring_version: str = "v1"
-    """Scoring version. 'v1' = success+time aggregate, 'v2' = success+time+locomotion aggregate, 'v3' = mean per-episode (fail=0; success=time+stability), 'v4' = success-rate-amplified quality with directness (success_rate × (bonus + quality))."""
+    """Legacy scoring version.  Accepted for backward compatibility when ``task_type``
+    is not set.  Prefer ``task_type`` for new configs.
+
+    - ``'v1'`` → navigation.simple / manipulation.pick_place
+    - ``'v2'`` → navigation.waypoint
+    - ``'v3'`` → navigation.goal
+    - ``'v4'`` → navigation.goal
+    """
     
     # Environment-specific config (optional, for additional environment parameters)
     env_config: dict[str, Any] = field(default_factory=dict)
@@ -116,6 +137,15 @@ class EvalConfig:
         config._resolve_policy_path()
         return config
     
+    @property
+    def effective_scorer_key(self) -> str:
+        """Return the scorer key to pass to ``get_scorer()``.
+
+        Prefers ``task_type`` when set; falls back to ``scoring_version`` for
+        backward compatibility with older configs.
+        """
+        return self.task_type if self.task_type is not None else self.scoring_version
+
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return {
@@ -126,6 +156,7 @@ class EvalConfig:
             "num_episodes": self.num_episodes,
             "max_episode_steps": self.max_episode_steps,
             "max_episode_time_s": self.max_episode_time_s,
+            "task_type": self.task_type,
             "scoring_version": self.scoring_version,
             "env_config": self.env_config,
             "num_envs": self.num_envs,
@@ -158,8 +189,27 @@ class EvalConfig:
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
         
-        if self.scoring_version not in ("v1", "v2", "v3", "v4"):
-            raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2', 'v3', 'v4'.")
+        _SUPPORTED_TASK_TYPES = (
+            "navigation.simple",
+            "navigation.waypoint",
+            "navigation.goal",
+            "manipulation.pick_place",
+        )
+        _SUPPORTED_VERSIONS = ("v1", "v2", "v3", "v4")
+
+        if self.task_type is not None:
+            if self.task_type not in _SUPPORTED_TASK_TYPES:
+                raise ValueError(
+                    f"Unsupported task_type: {self.task_type!r}. "
+                    f"Supported: {_SUPPORTED_TASK_TYPES}."
+                )
+        else:
+            if self.scoring_version not in _SUPPORTED_VERSIONS:
+                raise ValueError(
+                    f"Unsupported scoring_version: {self.scoring_version!r}. "
+                    f"Supported: {_SUPPORTED_VERSIONS}. "
+                    "Consider using task_type instead."
+                )
 
         if not self.category:
             raise ValueError("category cannot be empty")

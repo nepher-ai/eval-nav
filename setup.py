@@ -1,4 +1,4 @@
-# Copyright (c) 2026, Nepher AI
+# Copyright (c) 2026, Nepher Robotics
 # All rights reserved.
 #
 # SPDX-License-Identifier: Proprietary
@@ -11,7 +11,7 @@ setup(
     name="eval-nav",
     version="0.1.0",
     description="Navigation Evaluation Framework for IsaacLab",
-    author="Nepher Team",
+    author="Nepher Robotics",
     license="Proprietary",
     packages=find_packages(),
     python_requires=">=3.8",
