@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Pick-and-place manipulation scorer — success rate + time efficiency.
+"""Pick-and-place manipulation scorer — v1.
 
 Suitable for arm manipulation tasks (e.g. Franka high-level pick-and-place)
 that do not expose locomotion telemetry.
@@ -14,6 +14,11 @@ Formula
 
 ``time_efficiency`` is 1 − (mean_successful_steps / max_episode_steps),
 clipped to 0 when the ratio exceeds ``max_normalized_time``.
+
+Used by
+-------
+- ``task_type: "manipulation.pick_place"``, ``scoring_version: "v1"``
+  → task-franka-mani-hl.yaml
 """
 
 from __future__ import annotations
@@ -27,10 +32,7 @@ from ..base import BaseScorer
 
 
 class PickPlaceScorer(BaseScorer):
-    """Manipulation pick-and-place scorer: task success + completion speed.
-
-    Mirrors the logic of ``SimpleNavScorer`` but is named and documented
-    for manipulation contexts, making the task-type intention explicit.
+    """Manipulation pick-and-place scorer: task success + completion speed (v1).
 
     Weights
     -------
@@ -38,6 +40,7 @@ class PickPlaceScorer(BaseScorer):
     - Time efficiency   : 0.30
     """
 
+    VERSION: str = "v1"
     W_SUCCESS: float = 0.70
     W_TIME: float = 0.30
 
@@ -63,23 +66,16 @@ class PickPlaceScorer(BaseScorer):
     ) -> float:
         """Compute task-success + time-efficiency score.
 
-        Args:
-            metrics: Aggregate metrics from all episodes.
-            max_episode_steps: Step budget used for time normalization.
-            episodes: Individual episode records (used for mean successful steps).
-            max_episode_time_s: Accepted for API compatibility; not used here.
-
         Returns:
             Score in [0, 1].
         """
-        success_component = metrics.success_rate
         time_component = self._time_component(metrics, max_episode_steps, episodes)
-        return float(self.W_SUCCESS * success_component + self.W_TIME * time_component)
+        return float(self.W_SUCCESS * metrics.success_rate + self.W_TIME * time_component)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "task_type": "manipulation.pick_place",
-            "max_normalized_time": self.max_normalized_time,
+            "scoring_version": self.VERSION,
             "weights": {
                 "task_success_rate": self.W_SUCCESS,
                 "time_efficiency": self.W_TIME,

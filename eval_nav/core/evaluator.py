@@ -46,8 +46,13 @@ def _run_env_scene_worker(config_dict: dict, env_scene_combo: dict, checkpoint_p
     config_dict["env_scenes"] = [env_scene_combo]
     cfg = EvalConfig(**config_dict)
     evaluator = NavigationEvaluator(cfg, checkpoint_path=checkpoint_path, subprocess_mode=True)
+    # Tell the evaluator to persist results before env.close() so that a native
+    # crash inside close() (e.g. IsaacLab reward_manager destructor stack overflow)
+    # does not discard the episode data.
+    evaluator._subprocess_output_path = output_path
     episodes = evaluator.run_campaign(policy=None)
-    # Persist episode results using UTF-8 to avoid encoding issues
+    # Fallback write: if close() completed cleanly the file was already written
+    # inside _run_campaign; overwrite with the return value to stay consistent.
     with open(output_path, "w", encoding="utf-8", errors="replace") as f:
         json.dump([e.to_dict() for e in episodes], f, ensure_ascii=False)
 
@@ -72,11 +77,16 @@ class NavigationEvaluator:
         """
         config.validate()
         self.config = config
-        self.scorer = get_scorer(config.effective_scorer_key)
+        self.scorer = get_scorer(config.task_type, config.scoring_version)
         self.start_time: float | None = None
         self.checkpoint_path = checkpoint_path
         self._policy = None  # Will be loaded lazily
         self.subprocess_mode = subprocess_mode
+        # When running as a subprocess worker, set to the output file path so
+        # that _run_campaign writes results before calling env.close().  This
+        # lets the parent process recover episode data even when close() triggers
+        # a native stack overflow (e.g. IsaacLab reward_manager destructor).
+        self._subprocess_output_path: str | None = None
         self.env_manager = EnvironmentManager(config)
         self.episode_runner = EpisodeRunner(config)
         
@@ -209,8 +219,10 @@ class NavigationEvaluator:
         episode_id = 0
         env_scene_combos = self.config.env_scenes
 
-        # If multiple envs/scenes, run each in a fresh subprocess to avoid simulator reuse hangs
-        if not self.subprocess_mode and len(env_scene_combos) > 1:
+        # Run each env/scene in a dedicated subprocess so that a native crash
+        # inside env.close() (e.g. IsaacLab destructor stack overflow) does not
+        # kill the parent process and lose the collected episode data.
+        if not self.subprocess_mode and len(env_scene_combos) >= 1:
             temp_files = []
             processes = []
             for combo in env_scene_combos:
@@ -228,7 +240,25 @@ class NavigationEvaluator:
             for p, tmp_path in processes:
                 p.join()
                 if p.exitcode != 0:
-                    raise EvaluationRuntimeError(f"Subprocess failed for {tmp_path}")
+                    # The subprocess may have crashed inside env.close() *after*
+                    # already writing results to tmp_path.  Validate the file
+                    # before deciding whether to raise.
+                    try:
+                        with open(tmp_path, "r", encoding="utf-8", errors="replace") as _f:
+                            _content = _f.read().strip()
+                        if not _content:
+                            raise EvaluationRuntimeError(
+                                f"Subprocess crashed (exit {p.exitcode}) before writing results: {tmp_path}"
+                            )
+                        json.loads(_content)  # raises ValueError on malformed JSON
+                    except (OSError, ValueError) as _exc:
+                        raise EvaluationRuntimeError(
+                            f"Subprocess crashed (exit {p.exitcode}) with no valid results: {tmp_path}"
+                        ) from _exc
+                    print(
+                        f"[WARNING] Subprocess exited with code {p.exitcode} (likely during env.close()), "
+                        f"but episode results were already saved — continuing."
+                    )
                 # Read subprocess output JSON as UTF-8
                 with open(tmp_path, "r", encoding="utf-8", errors="replace") as f:
                     episode_dicts = json.load(f)
@@ -284,6 +314,12 @@ class NavigationEvaluator:
                             print(f"[INFO] Episode metrics: {episode_metrics_list}")
                             episodes.append(episode_metrics_list)
                             episode_id += 1
+                # Persist results NOW, before env.close(), so that a native crash
+                # inside close() (e.g. IsaacLab reward_manager destructor stack
+                # overflow) does not discard the collected episode data.
+                if self._subprocess_output_path:
+                    with open(self._subprocess_output_path, "w", encoding="utf-8", errors="replace") as _f:
+                        json.dump([e.to_dict() for e in episodes], _f, ensure_ascii=False)
             finally:
                 scene_env.close()
                 try:

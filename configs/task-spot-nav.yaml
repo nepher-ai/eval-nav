@@ -1,54 +1,39 @@
-# Evaluation configuration for task-spot-nav (goal navigation on obstacle terrain)
+# Evaluation configuration for task-spot-nav
 #
-# Evaluates the Spot student goal-navigation policy on the obstacle-terrain-v1
-# envhub preset. Uses V4 scoring (success-rate-amplified quality + directness;
-# builds on V3 per-episode signals). Requires eval-nav that supports scoring v4.
+# Evaluates the Spot student goal-navigation policy on obstacle-terrain-v2.
+# Uses navigation.spot / v4 scoring: success-rate-amplified quality with
+# per-episode time efficiency, locomotion stability, and path directness.
 #
-# Student env spawns a depth camera — must enable Isaac Sim camera rendering.
-# This flag is read by scripts/evaluate.py before AppLauncher (equivalent to CLI --enable_cameras).
+# The student env spawns a depth camera — Isaac Sim must be launched with
+# camera rendering enabled (handled automatically by scripts/evaluate.py).
 
 enable_cameras: true
 
 task_name: "Nepher-Spot-Nav-Envhub-Student-Play-v0"
-
-# Python module to import for environment registration
 task_module: "spotnav"
 
-# Environment-scene combinations to evaluate
 env_scenes:
   - env_id: "obstacle-terrain-v2"
     scene: 0
 
-# Random seeds for reproducibility
 seeds:
   - 42
 
-# Number of episodes per scene-seed combination
 num_episodes: 3
-
-# Maximum steps per episode (None = use environment default)
 max_episode_steps: 200
 
-# Physical time budget in seconds (decimation-invariant scoring).
-# When set, V3/V4 scorers normalize against this instead of max_episode_steps.
-# Matches the environment's episode_length_s.
+# Physical time budget — used by v4 scorer for decimation-invariant time efficiency.
 max_episode_time_s: 60.0
 
-# Number of parallel environments for evaluation (mandatory)
 num_envs: 300
 
-# Scoring version: v3 = success-focused + time + quadruped stability
-task_type: "navigation.goal"
-scoring_version: "v4"  # legacy alias kept for reference
+# Scorer: Spot goal navigation, version 4
+# task_type selects the scorer family; scoring_version selects the algorithm.
+# navigation.spot supports: v2 (waypoint), v3 (goal), v4 (goal + directness)
+task_type: "navigation.spot"
+scoring_version: "v4"
 
-# Logging
 log_dir: "logs/spot-nav"
 enable_logging: true
-
-# Timeout for entire evaluation (seconds, None = no timeout)
 timeout_seconds: null
-
-# Policy checkpoint path (optional)
-# If "default" or not specified, will look for "best_policy/best_policy.pt"
-# in the task project folder (task-spot-nav)
 policy_path: "default"

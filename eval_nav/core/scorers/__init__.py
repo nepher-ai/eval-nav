@@ -3,99 +3,106 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Scorer registry — resolve task types to scorer instances.
+"""Scorer registry — resolve (task_type, scoring_version) to a scorer instance.
 
-Task-type names follow the ``<domain>.<variant>`` convention:
+Task types and their supported scoring versions
+-----------------------------------------------
 
 Navigation
-----------
-- ``navigation.simple``   — success + time; no locomotion required
-                            (animal waypoint nav, leatherback waypoint nav)
-- ``navigation.waypoint`` — success + time + locomotion quality
-                            (Spot waypoint benchmark)
-- ``navigation.goal``     — success-rate-amplified quality + path directness
-                            (Spot obstacle-terrain goal nav)
+~~~~~~~~~~
+``navigation.leatherback`` — leatherback waypoint nav and ANYmal B waypoint nav
+    - v1 : success (70%) + time efficiency (30%)
+
+``navigation.spot`` — Spot quadruped tasks
+    - v2 : success (50%) + time (20%) + locomotion quality (30%)   [waypoint benchmark]
+    - v3 : per-episode mean; fail=0, success = time(50%) + stability(50%)   [goal nav]
+    - v4 : success_rate × (bonus + quality); quality = time(40%) + stability(40%) + directness(20%)   [goal nav + directness]
 
 Manipulation
-------------
-- ``manipulation.pick_place`` — task success + completion speed
-                                (Franka high-level pick-and-place)
+~~~~~~~~~~~~
+``manipulation.pick_place`` — arm pick-and-place tasks (e.g. Franka HL)
+    - v1 : task success (70%) + time efficiency (30%)
 
-Legacy aliases (``scoring_version`` field)
-------------------------------------------
-- ``v1`` → navigation.simple / manipulation.pick_place context
-- ``v2`` → navigation.waypoint
-- ``v3`` → navigation.goal  (V3 was an intermediate; GoalNavScorer covers it)
-- ``v4`` → navigation.goal
+Usage
+-----
+    from eval_nav.core.scorers import get_scorer
+
+    scorer = get_scorer("navigation.spot", "v4")
+    scorer = get_scorer("navigation.leatherback", "v1")
+    scorer = get_scorer("manipulation.pick_place", "v1")
 """
 
 from __future__ import annotations
 
 from .base import BaseScorer
 from .manipulation.pick_place import PickPlaceScorer
-from .navigation.goal import GoalNavScorer
-from .navigation.simple import SimpleNavScorer
-from .navigation.waypoint import WaypointNavScorer
+from .navigation.leatherback import LeatherbackNavScorer
+from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
 __all__ = [
     "BaseScorer",
-    "SimpleNavScorer",
-    "WaypointNavScorer",
-    "GoalNavScorer",
+    "LeatherbackNavScorer",
+    "SpotWaypointScorer",
+    "SpotGoalScorerV3",
+    "SpotGoalScorerV4",
     "PickPlaceScorer",
     "REGISTRY",
+    "VALID_VERSIONS_PER_TASK_TYPE",
     "get_scorer",
 ]
 
 # ---------------------------------------------------------------------------
-# Registry
+# Registry — keyed by (task_type, scoring_version)
 # ---------------------------------------------------------------------------
 
-REGISTRY: dict[str, type[BaseScorer]] = {
-    # Semantic task-type names (preferred)
-    "navigation.simple": SimpleNavScorer,
-    "navigation.waypoint": WaypointNavScorer,
-    "navigation.goal": GoalNavScorer,
-    "manipulation.pick_place": PickPlaceScorer,
-    # Legacy version aliases (backward compatibility)
-    "v1": SimpleNavScorer,
-    "v2": WaypointNavScorer,
-    "v3": GoalNavScorer,
-    "v4": GoalNavScorer,
+REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
+    ("navigation.leatherback", "v1"): LeatherbackNavScorer,
+    ("navigation.spot", "v2"): SpotWaypointScorer,
+    ("navigation.spot", "v3"): SpotGoalScorerV3,
+    ("navigation.spot", "v4"): SpotGoalScorerV4,
+    ("manipulation.pick_place", "v1"): PickPlaceScorer,
 }
 
-SUPPORTED_TASK_TYPES: tuple[str, ...] = (
-    "navigation.simple",
-    "navigation.waypoint",
-    "navigation.goal",
-    "manipulation.pick_place",
-)
+VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
+    "navigation.leatherback": ["v1"],
+    "navigation.spot": ["v2", "v3", "v4"],
+    "manipulation.pick_place": ["v1"],
+}
 
-SUPPORTED_LEGACY_VERSIONS: tuple[str, ...] = ("v1", "v2", "v3", "v4")
+SUPPORTED_TASK_TYPES: tuple[str, ...] = tuple(VALID_VERSIONS_PER_TASK_TYPE.keys())
 
 
-def get_scorer(task_type: str) -> BaseScorer:
-    """Instantiate a scorer by task type or legacy version string.
+def get_scorer(task_type: str, scoring_version: str) -> BaseScorer:
+    """Instantiate a scorer for the given task type and scoring version.
 
     Args:
-        task_type: A semantic task-type key (e.g. ``"navigation.goal"``) or a
-            legacy version string (``"v1"``–``"v4"``).
+        task_type: The task domain, e.g. ``"navigation.spot"``.
+        scoring_version: The version within that domain, e.g. ``"v4"``.
 
     Returns:
         A fresh scorer instance ready for use.
 
     Raises:
-        ValueError: When ``task_type`` is not in the registry.
+        ValueError: When the combination is not in the registry.
 
     Examples:
-        >>> scorer = get_scorer("navigation.goal")
-        >>> scorer = get_scorer("manipulation.pick_place")
-        >>> scorer = get_scorer("v4")  # legacy — same as navigation.goal
+        >>> get_scorer("navigation.spot", "v4")
+        SpotGoalScorerV4(...)
+        >>> get_scorer("navigation.leatherback", "v1")
+        LeatherbackNavScorer(...)
+        >>> get_scorer("manipulation.pick_place", "v1")
+        PickPlaceScorer(...)
     """
-    if task_type not in REGISTRY:
-        supported = sorted(REGISTRY)
+    key = (task_type, scoring_version)
+    if key not in REGISTRY:
+        if task_type not in VALID_VERSIONS_PER_TASK_TYPE:
+            raise ValueError(
+                f"Unknown task_type: {task_type!r}. "
+                f"Supported task types: {SUPPORTED_TASK_TYPES}"
+            )
+        valid = VALID_VERSIONS_PER_TASK_TYPE[task_type]
         raise ValueError(
-            f"Unknown task type or scoring version: {task_type!r}. "
-            f"Supported: {supported}"
+            f"Unsupported scoring_version {scoring_version!r} for task_type {task_type!r}. "
+            f"Valid versions for this task type: {valid}"
         )
-    return REGISTRY[task_type]()
+    return REGISTRY[key]()

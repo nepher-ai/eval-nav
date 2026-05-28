@@ -3,10 +3,20 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Navigation scorers — simple, waypoint, and goal-nav variants."""
+"""Navigation scorers, grouped by robot platform and scoring version.
 
-from .simple import SimpleNavScorer
-from .waypoint import WaypointNavScorer
-from .goal import GoalNavScorer
+Navigation task types
+---------------------
+- ``navigation.leatherback`` — leatherback and ANYmal B waypoint tasks (v1)
+- ``navigation.spot``        — Spot waypoint (v2) and goal-nav (v3, v4) tasks
+"""
 
-__all__ = ["SimpleNavScorer", "WaypointNavScorer", "GoalNavScorer"]
+from .leatherback import LeatherbackNavScorer
+from .spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
+
+__all__ = [
+    "LeatherbackNavScorer",
+    "SpotWaypointScorer",
+    "SpotGoalScorerV3",
+    "SpotGoalScorerV4",
+]

@@ -3,176 +3,197 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Configuration system for navigation evaluation."""
+"""Configuration system for evaluation campaigns."""
 
 from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass, field
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 
+# Supported (task_type, scoring_version) combinations — kept in sync with
+# eval_nav.core.scorers.VALID_VERSIONS_PER_TASK_TYPE.
+_VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
+    "navigation.leatherback": ["v1"],
+    "navigation.spot": ["v2", "v3", "v4"],
+    "manipulation.pick_place": ["v1"],
+}
+
+
 @dataclass
 class EvalConfig:
-    """Configuration for navigation evaluation campaign.
-    
-    Defines the evaluation parameters including:
-    - Target environment (Gym/IsaacLab task name)
-    - Scenes/environments to evaluate
-    - Random seeds for reproducibility
-    - Episode count and time horizon
-    - Scoring version
-    """
-    
-    # Environment selection
-    task_name: str
-    """Gymnasium task name (e.g., 'Nepher-Animal-WaypointNav-Envhub-Play-v0')."""
-    
-    num_envs: int
-    """Number of parallel environments to use for evaluation (mandatory)."""
-    
-    task_module: str | None = None
-    """Python module to import for environment registration (e.g., 'leatherbacknav', 'animalnav').
-    If None, the evaluator will attempt to infer from task_name."""
-    
-    # Scene/environment selection
-    env_scenes: list[dict[str, Any]] = field(default_factory=list)
-    """List of environment-scene combinations to evaluate.
-    Each dict must have 'env_id' and 'scene' keys.
-    Example: [{"env_id": "waypoint-benchmark-v1", "scene": 0}, {"env_id": "waypoint-sample-v1", "scene": 0}]"""
-    
-    # Reproducibility
-    seeds: list[int] = field(default_factory=lambda: [42])
-    """List of random seeds for deterministic evaluation."""
-    
-    # Evaluation parameters
-    num_episodes: int = 10
-    """Number of episodes to run per scene-seed combination."""
-    
-    max_episode_steps: int | None = None
-    """Maximum steps per episode. If None, uses environment default."""
-    
-    max_episode_time_s: float | None = None
-    """Physical time budget in seconds for the episode.  When set, V3+ scorers
-    normalize time efficiency against this instead of ``max_episode_steps``.
-    If None, the evaluator auto-detects from the environment
-    (``episode_length_s``) or derives it from ``max_episode_steps * step_dt``."""
-    
-    # Scoring
-    task_type: str | None = None
-    """Semantic task type for scorer selection.  Preferred over ``scoring_version``.
+    """Configuration for an evaluation campaign.
 
-    Supported values:
-    - ``'navigation.simple'``   — success + time; no locomotion required
-                                  (animal waypoint nav, leatherback waypoint nav)
-    - ``'navigation.waypoint'`` — success + time + locomotion quality
-                                  (Spot waypoint benchmark)
-    - ``'navigation.goal'``     — success-rate-amplified quality + path directness
-                                  (Spot obstacle-terrain goal nav)
-    - ``'manipulation.pick_place'`` — task success + completion speed
-                                  (Franka high-level pick-and-place)
+    Defines the target environment, scene selection, reproducibility seeds,
+    episode parameters, and — crucially — **both** the task type and the
+    scoring version that together identify the exact scorer to use.
+
+    Scorer selection
+    ----------------
+    ``task_type`` identifies the robot/task domain:
+
+    - ``"navigation.leatherback"`` — leatherback and ANYmal B waypoint navigation
+    - ``"navigation.spot"``        — Spot quadruped tasks (waypoint or goal nav)
+    - ``"manipulation.pick_place"`` — Franka high-level pick-and-place
+
+    ``scoring_version`` selects the algorithm *within* that task type:
+
+    +---------------------------+----------+-----------------------------------------+
+    | task_type                 | versions | description                             |
+    +===========================+==========+=========================================+
+    | navigation.leatherback    | v1       | success (70%) + time (30%)              |
+    +---------------------------+----------+-----------------------------------------+
+    | navigation.spot           | v2       | success + time + locomotion quality     |
+    |                           | v3       | per-episode; fail=0; time+stability     |
+    |                           | v4       | success-rate-amplified + directness     |
+    +---------------------------+----------+-----------------------------------------+
+    | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
+    +---------------------------+----------+-----------------------------------------+
+    """
+
+    # -----------------------------------------------------------------------
+    # Required fields (no default)
+    # -----------------------------------------------------------------------
+
+    task_name: str
+    """Gymnasium task name (e.g. 'Nepher-Spot-Nav-Envhub-Student-Play-v0')."""
+
+    num_envs: int
+    """Number of parallel environments to use for evaluation."""
+
+    # -----------------------------------------------------------------------
+    # Scoring (both fields are first-class, not legacy)
+    # -----------------------------------------------------------------------
+
+    task_type: str = "navigation.leatherback"
+    """Task domain that selects the scorer family.
+
+    Supported: ``"navigation.leatherback"``, ``"navigation.spot"``,
+    ``"manipulation.pick_place"``.
     """
 
     scoring_version: str = "v1"
-    """Legacy scoring version.  Accepted for backward compatibility when ``task_type``
-    is not set.  Prefer ``task_type`` for new configs.
+    """Scoring algorithm version within the task type.
 
-    - ``'v1'`` → navigation.simple / manipulation.pick_place
-    - ``'v2'`` → navigation.waypoint
-    - ``'v3'`` → navigation.goal
-    - ``'v4'`` → navigation.goal
+    Each task type supports specific versions — see class docstring for the
+    full matrix.  Setting an invalid combination raises ``ValueError`` in
+    ``validate()``.
     """
-    
-    # Environment-specific config (optional, for additional environment parameters)
+
+    # -----------------------------------------------------------------------
+    # Environment / scene
+    # -----------------------------------------------------------------------
+
+    task_module: str | None = None
+    """Python module to import for environment registration."""
+
+    env_scenes: list[dict[str, Any]] = field(default_factory=list)
+    """Environment-scene pairs to evaluate.
+    Each dict must have ``'env_id'`` and ``'scene'`` keys."""
+
+    # -----------------------------------------------------------------------
+    # Reproducibility
+    # -----------------------------------------------------------------------
+
+    seeds: list[int] = field(default_factory=lambda: [42])
+    """Random seeds for deterministic evaluation."""
+
+    # -----------------------------------------------------------------------
+    # Episode parameters
+    # -----------------------------------------------------------------------
+
+    num_episodes: int = 10
+    """Number of episodes to run per scene-seed combination."""
+
+    max_episode_steps: int | None = None
+    """Maximum steps per episode.  If None, uses the environment default."""
+
+    max_episode_time_s: float | None = None
+    """Physical time budget in seconds.  When set, v3/v4 scorers normalize time
+    efficiency against seconds instead of steps (decimation-invariant).
+    If None, the evaluator auto-detects from the environment."""
+
+    # -----------------------------------------------------------------------
+    # Environment extras
+    # -----------------------------------------------------------------------
+
     env_config: dict[str, Any] = field(default_factory=dict)
-    """Additional environment configuration (optional, for non-scene-specific parameters)."""
-    
-    # Timeout
-    timeout_seconds: float | None = None
-    """Maximum wall-clock time for entire evaluation. None = no timeout."""
-    
-    # Logging
-    log_dir: str | None = None
-    """Directory to save state logs (.npy files per episode/env). None = no logging."""
-    enable_logging: bool = False
-    """Whether to enable state logging. Requires log_dir to be set."""
-    
-    # Policy
-    policy_path: str | None = None
-    """Path to policy checkpoint file. If None or "default", will attempt to find 
-    "best_policy/best_policy.pt" in the task project folder."""
-    
+    """Additional environment configuration (optional)."""
+
     category: str = "navigation"
-    """Nepher envhub category used when verifying and loading scenes.
-    ``'navigation'`` for locomotion / nav tasks; ``'manipulation'`` for arm tasks."""
+    """Nepher envhub category: ``'navigation'`` or ``'manipulation'``."""
 
     enable_cameras: bool = False
-    """When True, ``scripts/evaluate.py`` passes ``--enable_cameras`` to Isaac Sim
-    before AppLauncher. Required for environments that spawn cameras (e.g. Spot
-    student with depth). CLI ``--enable_cameras`` still overrides if present."""
-    
+    """When True, ``scripts/evaluate.py`` passes ``--enable_cameras`` to Isaac Sim.
+    Required for environments that spawn depth cameras (e.g. Spot student)."""
+
+    # -----------------------------------------------------------------------
+    # Execution
+    # -----------------------------------------------------------------------
+
+    timeout_seconds: float | None = None
+    """Maximum wall-clock time for the entire evaluation.  None = no timeout."""
+
+    # -----------------------------------------------------------------------
+    # Logging
+    # -----------------------------------------------------------------------
+
+    log_dir: str | None = None
+    """Directory for state logs (.npy files per episode/env)."""
+
+    enable_logging: bool = False
+    """Whether to enable state logging.  Requires ``log_dir`` to be set."""
+
+    # -----------------------------------------------------------------------
+    # Policy
+    # -----------------------------------------------------------------------
+
+    policy_path: str | None = None
+    """Path to the RSL-RL checkpoint.  ``None`` or ``"default"`` resolves to
+    ``<task-project>/best_policy/best_policy.pt``."""
+
+    # -----------------------------------------------------------------------
+    # Class methods
+    # -----------------------------------------------------------------------
+
     @classmethod
     def from_yaml(cls, config_path: str | Path) -> EvalConfig:
-        """Load configuration from YAML file.
-        
+        """Load configuration from a YAML file.
+
         Args:
-            config_path: Path to YAML configuration file.
-            
+            config_path: Path to the YAML configuration file.
+
         Returns:
-            EvalConfig instance.
+            Validated ``EvalConfig`` instance.
         """
         config_path = Path(config_path)
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
-        
-        # Read YAML configs as UTF-8 to support non-ASCII characters
+
         with open(config_path, "r", encoding="utf-8", errors="replace") as f:
             data = yaml.safe_load(f)
-        
+
         config = cls(**data)
         config._resolve_policy_path()
         return config
-    
-    @property
-    def effective_scorer_key(self) -> str:
-        """Return the scorer key to pass to ``get_scorer()``.
 
-        Prefers ``task_type`` when set; falls back to ``scoring_version`` for
-        backward compatibility with older configs.
-        """
-        return self.task_type if self.task_type is not None else self.scoring_version
+    # -----------------------------------------------------------------------
+    # Validation
+    # -----------------------------------------------------------------------
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert config to dictionary."""
-        return {
-            "task_name": self.task_name,
-            "task_module": self.task_module,
-            "env_scenes": self.env_scenes,
-            "seeds": self.seeds,
-            "num_episodes": self.num_episodes,
-            "max_episode_steps": self.max_episode_steps,
-            "max_episode_time_s": self.max_episode_time_s,
-            "task_type": self.task_type,
-            "scoring_version": self.scoring_version,
-            "env_config": self.env_config,
-            "num_envs": self.num_envs,
-            "timeout_seconds": self.timeout_seconds,
-            "log_dir": self.log_dir,
-            "enable_logging": self.enable_logging,
-            "policy_path": self.policy_path,
-            "enable_cameras": self.enable_cameras,
-            "category": self.category,
-        }
-    
     def validate(self) -> None:
-        """Validate configuration parameters."""
+        """Validate all configuration parameters.
+
+        Raises:
+            ValueError: On any invalid field or invalid (task_type, scoring_version) combo.
+        """
         if not self.task_name:
             raise ValueError("task_name cannot be empty")
-        
+
         if not self.env_scenes:
             raise ValueError("env_scenes list cannot be empty")
         for i, env_scene in enumerate(self.env_scenes):
@@ -182,85 +203,94 @@ class EvalConfig:
                 raise ValueError(f"env_scenes[{i}] must have 'env_id' key")
             if "scene" not in env_scene:
                 raise ValueError(f"env_scenes[{i}] must have 'scene' key")
-        
+
         if not self.seeds:
             raise ValueError("seeds list cannot be empty")
-        
+
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
-        
-        _SUPPORTED_TASK_TYPES = (
-            "navigation.simple",
-            "navigation.waypoint",
-            "navigation.goal",
-            "manipulation.pick_place",
-        )
-        _SUPPORTED_VERSIONS = ("v1", "v2", "v3", "v4")
 
-        if self.task_type is not None:
-            if self.task_type not in _SUPPORTED_TASK_TYPES:
-                raise ValueError(
-                    f"Unsupported task_type: {self.task_type!r}. "
-                    f"Supported: {_SUPPORTED_TASK_TYPES}."
-                )
-        else:
-            if self.scoring_version not in _SUPPORTED_VERSIONS:
-                raise ValueError(
-                    f"Unsupported scoring_version: {self.scoring_version!r}. "
-                    f"Supported: {_SUPPORTED_VERSIONS}. "
-                    "Consider using task_type instead."
-                )
+        if self.num_envs < 1:
+            raise ValueError("num_envs must be >= 1")
+
+        # Validate (task_type, scoring_version) combo against registry
+        supported_types = tuple(_VALID_VERSIONS_PER_TASK_TYPE.keys())
+        if self.task_type not in _VALID_VERSIONS_PER_TASK_TYPE:
+            raise ValueError(
+                f"Unknown task_type: {self.task_type!r}. "
+                f"Supported: {supported_types}"
+            )
+        valid_versions = _VALID_VERSIONS_PER_TASK_TYPE[self.task_type]
+        if self.scoring_version not in valid_versions:
+            raise ValueError(
+                f"Unsupported scoring_version {self.scoring_version!r} "
+                f"for task_type {self.task_type!r}. "
+                f"Valid versions for this task type: {valid_versions}"
+            )
 
         if not self.category:
             raise ValueError("category cannot be empty")
-
-        known_categories = ("navigation", "manipulation")
-        if self.category not in known_categories:
+        if self.category not in ("navigation", "manipulation"):
             raise ValueError(
-                f"Unsupported category: '{self.category}'. Supported: {known_categories}."
+                f"Unsupported category: {self.category!r}. "
+                "Supported: ('navigation', 'manipulation')"
             )
-        
+
         if self.max_episode_time_s is not None and self.max_episode_time_s <= 0:
             raise ValueError("max_episode_time_s must be > 0 if specified")
-        
+
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")
-        
-        if self.num_envs < 1:
-            raise ValueError("num_envs must be >= 1")
-    
+
+    # -----------------------------------------------------------------------
+    # Serialization
+    # -----------------------------------------------------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary."""
+        return {
+            "task_name": self.task_name,
+            "task_module": self.task_module,
+            "task_type": self.task_type,
+            "scoring_version": self.scoring_version,
+            "env_scenes": self.env_scenes,
+            "seeds": self.seeds,
+            "num_episodes": self.num_episodes,
+            "max_episode_steps": self.max_episode_steps,
+            "max_episode_time_s": self.max_episode_time_s,
+            "env_config": self.env_config,
+            "num_envs": self.num_envs,
+            "category": self.category,
+            "enable_cameras": self.enable_cameras,
+            "timeout_seconds": self.timeout_seconds,
+            "log_dir": self.log_dir,
+            "enable_logging": self.enable_logging,
+            "policy_path": self.policy_path,
+        }
+
+    # -----------------------------------------------------------------------
+    # Internal helpers
+    # -----------------------------------------------------------------------
+
     def _resolve_policy_path(self) -> None:
-        """Resolve policy_path to actual file path.
-        
-        If policy_path is None or "default", attempts to find 
-        "best_policy/best_policy.pt" in the task project folder.
-        """
+        """Resolve ``policy_path`` to an actual file path when set to default."""
         if self.policy_path is None or self.policy_path == "default":
             task_project_dir = self._find_task_project_folder()
             if task_project_dir:
                 default_path = task_project_dir / "best_policy" / "best_policy.pt"
-                if default_path.exists():
-                    self.policy_path = str(default_path)
-                else:
-                    self.policy_path = None
+                self.policy_path = str(default_path) if default_path.exists() else None
             else:
                 self.policy_path = None
-    
+
     def _find_task_project_folder(self) -> Path | None:
-        """Find the task project folder based on task_module.
-        
-        Returns:
-            Path to task project folder if found, None otherwise.
-        """
+        """Walk up from ``task_module``'s file to find the ``task-*`` project root."""
         if not self.task_module:
             return None
-        
         try:
             module = importlib.import_module(self.task_module)
             if hasattr(module, "__file__") and module.__file__:
-                module_path = Path(module.__file__)
-                current = module_path.parent
-                for _ in range(10):  # Limit depth to avoid infinite loops
+                current = Path(module.__file__).parent
+                for _ in range(10):
                     if current.name.startswith("task-"):
                         return current
                     parent = current.parent
@@ -269,6 +299,4 @@ class EvalConfig:
                     current = parent
         except ImportError:
             pass
-        
         return None
-
