@@ -1,7 +1,7 @@
 # Evaluation configuration for task-franka-mani-hl
 #
 # Evaluates the Franka HL classical pick-and-place policy on the
-# franka-mani-base-v1 envhub preset.  The frozen LL RSL-RL checkpoint
+# franka-pickplace-base-sample envhub preset.  The frozen LL RSL-RL checkpoint
 # drives the arm; the PickPlacePlanner drives the HL logic.
 #
 # Uses manipulation.pick_place / v1 scoring: task success (70%) + time
@@ -12,7 +12,7 @@ task_module: "franka_mani_base"
 category: "manipulation"
 
 env_scenes:
-  - env_id: "franka-mani-base-v1"
+  - env_id: "franka-pickplace-base-sample"
     scene: 0
 
 seeds:
