@@ -16,7 +16,7 @@ task_module: "spotnav"
 
 # Environment-scene combinations to evaluate
 env_scenes:
-  - env_id: "obstacle-terrain-v3"
+  - env_id: "obstacle-terrain-v2"
     scene: 0
 
 # Random seeds for reproducibility
@@ -24,10 +24,10 @@ seeds:
   - 42
 
 # Number of episodes per scene-seed combination
-num_episodes: 1
+num_episodes: 3
 
 # Maximum steps per episode (None = use environment default)
-max_episode_steps: 150
+max_episode_steps: 200
 
 # Physical time budget in seconds (decimation-invariant scoring).
 # When set, V3/V4 scorers normalize against this instead of max_episode_steps.

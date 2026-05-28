@@ -1,0 +1,53 @@
+# Evaluation configuration for task-franka-mani-base (HL pick-and-place)
+#
+# Evaluates the Franka HL classical pick-and-place policy on a Nepher
+# manipulation preset loaded from envhub.  The frozen LL RSL-RL checkpoint
+# drives the arm; the classical PickPlacePlanner drives the HL logic.
+#
+# Scoring: V1 (success rate + time efficiency).  No locomotion component
+# is needed for manipulation.
+
+task_name: "Nepher-Franka-Mani-HL-Envhub-Play-v0"
+
+# Python module to import for environment + wrap_for_eval registration
+task_module: "franka_mani_base"
+
+# Nepher envhub category
+category: "manipulation"
+
+# Environment-scene combinations to evaluate
+env_scenes:
+  - env_id: "franka-mani-base-v1"
+    scene: 0
+
+# Random seeds for reproducibility
+seeds:
+  - 42
+
+# Number of episodes per scene-seed combination
+num_episodes: 5
+
+# Maximum steps per episode (None = use environment default)
+max_episode_steps: 1000
+
+# Physical time budget in seconds.  Matches the preset's max_episode_length_s.
+max_episode_time_s: 20.0
+
+# Number of parallel environments for evaluation
+num_envs: 30
+
+# Scoring: V1 = success rate (70%) + time efficiency (30%)
+scoring_version: "v1"
+
+# Logging
+log_dir: "logs/franka-mani-hl"
+enable_logging: true
+
+# No cameras needed for this environment
+enable_cameras: false
+
+# Timeout for entire evaluation (seconds, None = no timeout)
+timeout_seconds: null
+
+# Policy checkpoint path — looks for best_policy/best_policy.pt in task-franka-mani-base
+policy_path: "default"

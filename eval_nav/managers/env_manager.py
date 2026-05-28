@@ -112,7 +112,7 @@ class EnvironmentManager:
         for env_id, scenes in env_scenes_map.items():
             try:
                 from nepher import load_env
-                env = load_env(env_id, category="navigation")
+                env = load_env(env_id, category=self.config.category)
                 
                 if env.type == "preset":
                     available_scenes = list(range(len(env.preset_scenes)))

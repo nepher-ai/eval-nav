@@ -85,6 +85,10 @@ class EvalConfig:
     """Path to policy checkpoint file. If None or "default", will attempt to find 
     "best_policy/best_policy.pt" in the task project folder."""
     
+    category: str = "navigation"
+    """Nepher envhub category used when verifying and loading scenes.
+    ``'navigation'`` for locomotion / nav tasks; ``'manipulation'`` for arm tasks."""
+
     enable_cameras: bool = False
     """When True, ``scripts/evaluate.py`` passes ``--enable_cameras`` to Isaac Sim
     before AppLauncher. Required for environments that spawn cameras (e.g. Spot
@@ -130,6 +134,7 @@ class EvalConfig:
             "enable_logging": self.enable_logging,
             "policy_path": self.policy_path,
             "enable_cameras": self.enable_cameras,
+            "category": self.category,
         }
     
     def validate(self) -> None:
@@ -155,6 +160,15 @@ class EvalConfig:
         
         if self.scoring_version not in ("v1", "v2", "v3", "v4"):
             raise ValueError(f"Unsupported scoring version: {self.scoring_version}. Supported: 'v1', 'v2', 'v3', 'v4'.")
+
+        if not self.category:
+            raise ValueError("category cannot be empty")
+
+        known_categories = ("navigation", "manipulation")
+        if self.category not in known_categories:
+            raise ValueError(
+                f"Unsupported category: '{self.category}'. Supported: {known_categories}."
+            )
         
         if self.max_episode_time_s is not None and self.max_episode_time_s <= 0:
             raise ValueError("max_episode_time_s must be > 0 if specified")
