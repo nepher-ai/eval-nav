@@ -169,6 +169,12 @@ class EvalConfig:
 
         Returns:
             Validated ``EvalConfig`` instance.
+
+        Raises:
+            FileNotFoundError: If the config file does not exist.
+            ValueError: If ``task_type`` is absent from the YAML (would
+                silently default to ``"navigation.leatherback"`` and produce a
+                confusing scorer-mismatch error later).
         """
         config_path = Path(config_path)
         if not config_path.exists():
@@ -176,6 +182,14 @@ class EvalConfig:
 
         with open(config_path, "r", encoding="utf-8", errors="replace") as f:
             data = yaml.safe_load(f)
+
+        if "task_type" not in data:
+            raise ValueError(
+                f"Config file {config_path} is missing the required 'task_type' field. "
+                f"Add 'task_type' explicitly (e.g. 'navigation.spot') — omitting it "
+                f"would silently default to 'navigation.leatherback' and cause a "
+                f"scorer-mismatch error at evaluation time."
+            )
 
         config = cls(**data)
         config._resolve_policy_path()
