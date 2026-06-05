@@ -29,6 +29,67 @@ from ..utils.policy_loader import load_policy_from_checkpoint
 from .scorer import get_scorer
 
 
+# Grace period (seconds) granted to a worker subprocess to exit on its own AFTER
+# it has flushed episode results to disk. Isaac Sim teardown (USD stage detach /
+# plugin unload) can hang indefinitely in native code; once results are on disk
+# we must not let that hang consume the whole evaluation timeout. The worker
+# normally hard-exits itself (see _run_campaign), so this is only a backstop.
+_CLOSE_GRACE_SECONDS = float(os.environ.get("NEPHER_EVAL_CLOSE_GRACE_SECONDS", "120"))
+_JOIN_POLL_SECONDS = 2.0
+
+
+def _results_file_ready(path: str) -> bool:
+    """Return True if `path` holds a valid, non-empty JSON results payload."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read().strip()
+        if not content:
+            return False
+        json.loads(content)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _join_worker_with_teardown_guard(p: "Process", tmp_path: str) -> None:
+    """Join a worker subprocess without letting a hung teardown block forever.
+
+    The worker flushes its episode results to ``tmp_path`` BEFORE calling
+    ``env.close()`` and normally hard-exits immediately after the flush. If for
+    any reason it is still alive after results are on disk (e.g. stuck in native
+    Isaac Sim teardown), grant a short grace period and then terminate it so the
+    parent can proceed with the already-collected data instead of timing out.
+    """
+    results_ready_since: float | None = None
+    while True:
+        p.join(timeout=_JOIN_POLL_SECONDS)
+        if p.exitcode is not None:
+            return  # exited on its own (clean exit or crash)
+
+        if results_ready_since is None and _results_file_ready(tmp_path):
+            results_ready_since = time.time()
+            print(
+                f"[INFO] Worker {p.pid} flushed results; granting "
+                f"{_CLOSE_GRACE_SECONDS:.0f}s for clean shutdown before forcing termination."
+            )
+
+        if (
+            results_ready_since is not None
+            and (time.time() - results_ready_since) > _CLOSE_GRACE_SECONDS
+        ):
+            print(
+                f"[WARNING] Worker {p.pid} still alive {_CLOSE_GRACE_SECONDS:.0f}s after "
+                f"writing results (stuck in env.close()/teardown) — terminating."
+            )
+            p.terminate()
+            p.join(timeout=10)
+            if p.exitcode is None:
+                print(f"[WARNING] Worker {p.pid} ignored SIGTERM — sending SIGKILL.")
+                p.kill()
+                p.join(timeout=10)
+            return
+
+
 def _run_env_scene_worker(config_dict: dict, env_scene_combo: dict, checkpoint_path: str | None, output_path: str) -> None:
     """Subprocess worker to evaluate a single env-scene combination.
     
@@ -238,11 +299,11 @@ class NavigationEvaluator:
                 processes.append((p, tmp_path))
 
             for p, tmp_path in processes:
-                p.join()
+                _join_worker_with_teardown_guard(p, tmp_path)
                 if p.exitcode != 0:
-                    # The subprocess may have crashed inside env.close() *after*
-                    # already writing results to tmp_path.  Validate the file
-                    # before deciding whether to raise.
+                    # The subprocess may have crashed or been terminated inside
+                    # env.close()/teardown *after* already writing results to
+                    # tmp_path.  Validate the file before deciding whether to raise.
                     try:
                         with open(tmp_path, "r", encoding="utf-8", errors="replace") as _f:
                             _content = _f.read().strip()
@@ -315,11 +376,29 @@ class NavigationEvaluator:
                             episodes.append(episode_metrics_list)
                             episode_id += 1
                 # Persist results NOW, before env.close(), so that a native crash
-                # inside close() (e.g. IsaacLab reward_manager destructor stack
-                # overflow) does not discard the collected episode data.
+                # OR hang inside close() (e.g. IsaacLab reward_manager destructor
+                # stack overflow, or Isaac Sim USD stage detach / plugin unload
+                # hanging indefinitely) does not discard the collected episode data.
                 if self._subprocess_output_path:
                     with open(self._subprocess_output_path, "w", encoding="utf-8", errors="replace") as _f:
                         json.dump([e.to_dict() for e in episodes], _f, ensure_ascii=False)
+                        _f.flush()
+                        os.fsync(_f.fileno())
+
+                    # Hard-exit the worker to bypass Isaac Sim's teardown, which
+                    # can hang forever in native code (USD stage detach / plugin
+                    # unload) AFTER a fully successful run. Results are already on
+                    # disk, so there is nothing left to do in this ephemeral
+                    # subprocess. os._exit() terminates immediately and does NOT
+                    # run the `finally: scene_env.close()` below — that is
+                    # intentional; the OS reclaims GPU/file/memory resources on
+                    # process exit. Without this, a hung close() blocks the parent
+                    # join() until the global eval timeout fires (exit 124) and the
+                    # collected results are thrown away.
+                    print("[INFO] Results flushed; hard-exiting worker to skip Isaac Sim teardown.")
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                    os._exit(0)
             finally:
                 scene_env.close()
                 try:
