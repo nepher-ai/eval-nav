@@ -5,6 +5,6 @@
 
 """Manipulation scorers — pick-and-place and future arm-task variants."""
 
-from .pick_place import PickPlaceScorer
+from .pick_place import PickPlaceScorer, PickPlaceScorerV2
 
-__all__ = ["PickPlaceScorer"]
+__all__ = ["PickPlaceScorer", "PickPlaceScorerV2"]

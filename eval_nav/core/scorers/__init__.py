@@ -21,7 +21,8 @@ Navigation
 Manipulation
 ~~~~~~~~~~~~
 ``manipulation.pick_place`` — arm pick-and-place tasks (e.g. Franka HL)
-    - v1 : task success (70%) + time efficiency (30%)
+    - v1 : task success (70%) + time efficiency (30%)  [deprecated: additive, SR not dominant]
+    - v2 : success_rate × (0.75 + 0.25 × time_efficiency)  [success rate is first-class multiplier]
 
 Usage
 -----
@@ -29,13 +30,13 @@ Usage
 
     scorer = get_scorer("navigation.spot", "v4")
     scorer = get_scorer("navigation.leatherback", "v1")
-    scorer = get_scorer("manipulation.pick_place", "v1")
+    scorer = get_scorer("manipulation.pick_place", "v2")
 """
 
 from __future__ import annotations
 
 from .base import BaseScorer
-from .manipulation.pick_place import PickPlaceScorer
+from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
 from .navigation.leatherback import LeatherbackNavScorer
 from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
@@ -46,6 +47,7 @@ __all__ = [
     "SpotGoalScorerV3",
     "SpotGoalScorerV4",
     "PickPlaceScorer",
+    "PickPlaceScorerV2",
     "REGISTRY",
     "VALID_VERSIONS_PER_TASK_TYPE",
     "get_scorer",
@@ -61,12 +63,13 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
     ("navigation.spot", "v3"): SpotGoalScorerV3,
     ("navigation.spot", "v4"): SpotGoalScorerV4,
     ("manipulation.pick_place", "v1"): PickPlaceScorer,
+    ("manipulation.pick_place", "v2"): PickPlaceScorerV2,
 }
 
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.leatherback": ["v1"],
     "navigation.spot": ["v2", "v3", "v4"],
-    "manipulation.pick_place": ["v1"],
+    "manipulation.pick_place": ["v1", "v2"],
 }
 
 SUPPORTED_TASK_TYPES: tuple[str, ...] = tuple(VALID_VERSIONS_PER_TASK_TYPE.keys())
@@ -90,8 +93,8 @@ def get_scorer(task_type: str, scoring_version: str) -> BaseScorer:
         SpotGoalScorerV4(...)
         >>> get_scorer("navigation.leatherback", "v1")
         LeatherbackNavScorer(...)
-        >>> get_scorer("manipulation.pick_place", "v1")
-        PickPlaceScorer(...)
+        >>> get_scorer("manipulation.pick_place", "v2")
+        PickPlaceScorerV2(...)
     """
     key = (task_type, scoring_version)
     if key not in REGISTRY:
