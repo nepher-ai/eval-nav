@@ -20,7 +20,7 @@ import yaml
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.leatherback": ["v1"],
     "navigation.spot": ["v2", "v3", "v4"],
-    "manipulation.pick_place": ["v1"],
+    "manipulation.pick_place": ["v1", "v2"],
 }
 
 
@@ -52,6 +52,7 @@ class EvalConfig:
     |                           | v4       | success-rate-amplified + directness     |
     +---------------------------+----------+-----------------------------------------+
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
+    |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
     """
 

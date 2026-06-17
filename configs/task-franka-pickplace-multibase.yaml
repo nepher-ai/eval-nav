@@ -1,0 +1,29 @@
+# Evaluation configuration for task-franka-pickplace-multibase
+
+task_name: "Nepher-Franka-PickPlace-HL-Multibase-EnvhubPlay-v0"
+task_module: "franka_pickplace_multibase"
+category: "manipulation"
+
+env_scenes:
+  - env_id: "franka-pickplace-multibase-sample"
+    scene: 0
+
+seeds:
+  - 42
+
+num_episodes: 3
+max_episode_steps: 1500
+
+
+max_episode_time_s: 30.0
+
+num_envs: 30
+
+task_type: "manipulation.pick_place"
+scoring_version: "v2"
+
+log_dir: "logs/franka-pickplace-multibase-hl"
+enable_logging: true
+enable_cameras: false
+timeout_seconds: null
+policy_path: "default"
