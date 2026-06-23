@@ -71,13 +71,16 @@ class EpisodeRunner:
         if not buf or not buf.get("speed_2d"):
             return {}
         speeds = np.asarray(buf["speed_2d"])
+        yaw_rates = np.asarray(buf["yaw_rate"])
         summary: dict[str, Any] = {
             "mean_speed": float(speeds.mean()),
             "max_speed": float(speeds.max()),
             "speed_std": float(speeds.std()),
             "mean_vertical_speed": float(np.mean(buf["vertical_speed"])),
-            "mean_angular_speed": float(np.mean(buf["yaw_rate"])),
-            "angular_speed_std": float(np.std(buf["yaw_rate"])),
+            "mean_angular_speed": float(yaw_rates.mean()),
+            "max_yaw_rate": float(yaw_rates.max()),
+            "mean_yaw_rate": float(yaw_rates.mean()),
+            "angular_speed_std": float(yaw_rates.std()),
             "mean_roll_pitch_rate": float(np.mean(buf["roll_pitch_rate"])),
         }
         if "lateral_speed" in buf:

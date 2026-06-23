@@ -18,7 +18,7 @@ import yaml
 # Supported (task_type, scoring_version) combinations — kept in sync with
 # eval_nav.core.scorers.VALID_VERSIONS_PER_TASK_TYPE.
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
-    "navigation.leatherback": ["v1"],
+    "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
 }
@@ -46,6 +46,7 @@ class EvalConfig:
     | task_type                 | versions | description                             |
     +===========================+==========+=========================================+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
+    |                           | v2       | SR-amplified: time + speed/yaw limits   |
     +---------------------------+----------+-----------------------------------------+
     | navigation.spot           | v2       | success + time + locomotion quality     |
     |                           | v3       | per-episode; fail=0; time+stability     |

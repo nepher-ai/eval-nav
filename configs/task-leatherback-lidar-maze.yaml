@@ -1,0 +1,48 @@
+# Evaluation configuration for task-leatherback-lidar (deterministic maze benchmark)
+#
+# Evaluates the Leatherback LiDAR navigation policy on the
+# ``leatherback-maze-v1`` envhub bundle — 10 perfect-maze USD files composed
+# into a single composite stage, one maze per parallel environment.
+#
+# Uses navigation.leatherback / v2 scoring:
+#   score = success_rate × (0.25 + 0.75 × mean_quality)
+#   quality = 0.50×time_efficiency + 0.25×speed_compliance + 0.25×yaw_compliance
+#   speed limit: 3.0 m/s (MAX_SPEED)
+#   yaw-rate limit: 2.0 rad/s (MAX_YAW_RATE, tightest safe turn in 2 m corridor)
+#
+# Prerequisites:
+#   1. Run `python make_maze_map/generate_scenario.py` (Isaac Sim Python) to
+#      populate envhub/environments/leatherback-maze-v1/maps/.
+#   2. Install leatherback_lidar: `pip install -e task-leatherback-lidar/source/leatherback_lidar`
+#   3. Install nepher (envhub):   `pip install -e envhub`
+
+task_name: "Nepher-Leatherback-Lidar-Maze-Envhub-Play-v0"
+task_module: "leatherback_lidar"
+
+env_scenes:
+  - env_id: "leatherback-maze-v1"
+    scene: 0
+
+seeds:
+  - 42
+
+# 10 envs = one per maze; scale up to 64 for broader coverage
+num_envs: 10
+
+# 5 episodes × 10 envs = 50 rollouts; each runs a different random seed reset
+# (same spawn/goal since env is deterministic, but policy stochasticity varies)
+num_episodes: 5
+
+# Episode length matches the training config (30 s at 15 Hz = 450 steps)
+max_episode_steps: 450
+max_episode_time_s: 30.0
+
+# Scorer: leatherback maze navigation, version 2
+# navigation.leatherback supports: v1 (success+time), v2 (SR-amplified + limits)
+task_type: "navigation.leatherback"
+scoring_version: "v2"
+
+log_dir: "logs/leatherback-lidar-maze"
+enable_logging: true
+timeout_seconds: null
+policy_path: "default"

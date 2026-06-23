@@ -7,15 +7,19 @@
 
 Navigation task types
 ---------------------
-- ``navigation.leatherback`` — leatherback and ANYmal B waypoint tasks (v1)
+- ``navigation.leatherback`` — leatherback/ANYmal B tasks
+    - v1: success (70%) + time efficiency (30%)
+    - v2: success-rate-amplified + time + speed/yaw-rate compliance
 - ``navigation.spot``        — Spot waypoint (v2) and goal-nav (v3, v4) tasks
 """
 
 from .leatherback import LeatherbackNavScorer
+from .leatherback_maze import LeatherbackMazeScorer
 from .spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
 __all__ = [
     "LeatherbackNavScorer",
+    "LeatherbackMazeScorer",
     "SpotWaypointScorer",
     "SpotGoalScorerV3",
     "SpotGoalScorerV4",
