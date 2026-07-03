@@ -18,6 +18,7 @@ import yaml
 # Supported (task_type, scoring_version) combinations — kept in sync with
 # eval_nav.core.scorers.VALID_VERSIONS_PER_TASK_TYPE.
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
+    "navigation.humanoid": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
@@ -45,6 +46,8 @@ class EvalConfig:
     +---------------------------+----------+-----------------------------------------+
     | task_type                 | versions | description                             |
     +===========================+==========+=========================================+
+    | navigation.humanoid       | v1       | SR-amplified: time + speed + stability  |
+    +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |
     +---------------------------+----------+-----------------------------------------+
@@ -155,8 +158,8 @@ class EvalConfig:
     # -----------------------------------------------------------------------
 
     policy_path: str | None = None
-    """Path to the RSL-RL checkpoint.  ``None`` or ``"default"`` resolves to
-    ``<task-project>/best_policy/best_policy.pt``."""
+    """Path to the RSL-RL checkpoint.  ``None`` or ``"default"`` resolves under
+    ``<task-project>/best_policy/`` — tries ``best.pt`` then ``best_policy.pt``."""
 
     # -----------------------------------------------------------------------
     # Class methods
@@ -293,13 +296,24 @@ class EvalConfig:
         if self.policy_path is None or self.policy_path == "default":
             task_project_dir = self._find_task_project_folder()
             if task_project_dir:
-                default_path = task_project_dir / "best_policy" / "best_policy.pt"
-                self.policy_path = str(default_path) if default_path.exists() else None
+                candidates = [
+                    task_project_dir / "best_policy" / "best.pt",
+                    task_project_dir / "best_policy" / "best_policy.pt",
+                ]
+                for path in candidates:
+                    if path.is_file():
+                        self.policy_path = str(path)
+                        return
+                self.policy_path = None
             else:
                 self.policy_path = None
 
     def _find_task_project_folder(self) -> Path | None:
-        """Walk up from ``task_module``'s file to find the ``task-*`` project root."""
+        """Walk up from ``task_module``'s file to find the task project root.
+
+        Matches directories named ``task-*`` (e.g. task-leatherback-lidar) or
+        ``task_*`` (e.g. task_humanoid_running).
+        """
         if not self.task_module:
             return None
         try:
@@ -307,7 +321,8 @@ class EvalConfig:
             if hasattr(module, "__file__") and module.__file__:
                 current = Path(module.__file__).parent
                 for _ in range(10):
-                    if current.name.startswith("task-"):
+                    name = current.name
+                    if name.startswith("task-") or name.startswith("task_"):
                         return current
                     parent = current.parent
                     if parent == current:
