@@ -12,6 +12,7 @@ building for different navigation tasks and robots.
 from __future__ import annotations
 
 import importlib
+import inspect
 from importlib import import_module
 from typing import Any
 
@@ -183,14 +184,8 @@ class EnvironmentManager:
         cfg_entry_point = gym.spec(self.config.task_name).kwargs.get("env_cfg_entry_point")
         if cfg_entry_point is None:
             return None
-        
-        if ":" in cfg_entry_point:
-            module_path, class_name = cfg_entry_point.rsplit(":", 1)
-        else:
-            raise ValueError(f"Expected class entry point, got: {cfg_entry_point}")
-        
-        module = import_module(module_path)
-        cfg_class = getattr(module, class_name)
+
+        cfg_class = self._resolve_cfg_class(cfg_entry_point)
         
         env_config = self.config.env_config.copy() if self.config.env_config else {}
         env_config["env_id"] = env_id
@@ -202,6 +197,23 @@ class EnvironmentManager:
             cfg.scene.num_envs = self.config.num_envs
         
         return cfg
+    
+    @staticmethod
+    def _resolve_cfg_class(cfg_entry_point: Any) -> type:
+        """Resolve a gym ``env_cfg_entry_point`` to a config class.
+
+        Supports both string entry points (``"module:ClassName"``) and direct
+        class references (as used by whole_body_tracking gym registration).
+        """
+        if isinstance(cfg_entry_point, str):
+            if ":" not in cfg_entry_point:
+                raise ValueError(f"Expected class entry point, got: {cfg_entry_point}")
+            module_path, class_name = cfg_entry_point.rsplit(":", 1)
+            module = import_module(module_path)
+            return getattr(module, class_name)
+        if inspect.isclass(cfg_entry_point):
+            return cfg_entry_point
+        raise ValueError(f"Unsupported env_cfg_entry_point: {cfg_entry_point!r}")
     
     def load_environment_for_scene(self, env_id: str, scene: str | int) -> gym.Env:
         """Load environment configured for a specific scene.

@@ -37,12 +37,14 @@ from __future__ import annotations
 
 from .base import BaseScorer
 from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
+from .navigation.humanoid import HumanoidRaceScorer
 from .navigation.leatherback import LeatherbackNavScorer
 from .navigation.leatherback_maze import LeatherbackMazeScorer
 from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
 __all__ = [
     "BaseScorer",
+    "HumanoidRaceScorer",
     "LeatherbackNavScorer",
     "LeatherbackMazeScorer",
     "SpotWaypointScorer",
@@ -60,6 +62,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
+    ("navigation.humanoid", "v1"): HumanoidRaceScorer,
     ("navigation.leatherback", "v1"): LeatherbackNavScorer,
     ("navigation.leatherback", "v2"): LeatherbackMazeScorer,
     ("navigation.spot", "v2"): SpotWaypointScorer,
@@ -70,6 +73,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
 }
 
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
+    "navigation.humanoid": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
