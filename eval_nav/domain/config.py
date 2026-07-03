@@ -46,7 +46,7 @@ class EvalConfig:
     +---------------------------+----------+-----------------------------------------+
     | task_type                 | versions | description                             |
     +===========================+==========+=========================================+
-    | navigation.humanoid       | v1       | SR-amplified: time + speed + stability  |
+    | navigation.humanoid       | v1       | SR-amplified: time efficiency only      |
     +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |
