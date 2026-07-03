@@ -1,7 +1,7 @@
 # Evaluation configuration for task-humanoid-running (deterministic waypoint benchmark)
 
 task_name: "Nepher-Race-Waypoint-G1-Envhub-Play-v0"
-task_module: "whole_body_tracking"
+task_module: "humanoid_run"
 
 env_scenes:
   - env_id: "humanoid-waypoint-benchmark-v1"
