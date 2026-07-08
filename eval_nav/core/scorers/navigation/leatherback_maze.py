@@ -76,8 +76,8 @@ from ..base import BaseScorer
 # Limits (kept in sync with navigation_env_cfg_maze.py / ActionsCfg)
 # ---------------------------------------------------------------------------
 
-MAX_SPEED:    float = 3.0    # m/s — matches AckermannActionCfg.max_lin_vel
-MAX_YAW_RATE: float = 2.0   # rad/s — tightest safe turn in 2 m corridor at 3 m/s
+MAX_SPEED:    float = 5.0    # m/s — matches AckermannActionCfg.max_lin_vel
+MAX_YAW_RATE: float = 3.0   # rad/s — tightest safe turn in 2 m corridor at 3 m/s
 
 
 class LeatherbackMazeScorer(BaseScorer):
