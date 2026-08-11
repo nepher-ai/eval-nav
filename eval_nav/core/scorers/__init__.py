@@ -18,6 +18,12 @@ Navigation
     - v3 : per-episode mean; fail=0, success = time(50%) + stability(50%)   [goal nav]
     - v4 : success_rate × (bonus + quality); quality = time(40%) + stability(40%) + directness(20%)   [goal nav + directness]
 
+``navigation.humanoid`` — G1 waypoint race
+    - v1 : success_rate × (0.25 + 0.75 × time_efficiency)
+
+``navigation.humanoid.runjump`` — G1 obstacle-course HL
+    - v1 : success_rate × (0.25 + 0.75 × (0.40×time + 0.35×clear_land + 0.25×safety_energy))
+
 Manipulation
 ~~~~~~~~~~~~
 ``manipulation.pick_place`` — arm pick-and-place tasks (e.g. Franka HL)
@@ -38,6 +44,7 @@ from __future__ import annotations
 from .base import BaseScorer
 from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
 from .navigation.humanoid import HumanoidRaceScorer
+from .navigation.humanoid_runjump import HumanoidRunJumpScorer
 from .navigation.leatherback import LeatherbackNavScorer
 from .navigation.leatherback_maze import LeatherbackMazeScorer
 from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
@@ -45,6 +52,7 @@ from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointSco
 __all__ = [
     "BaseScorer",
     "HumanoidRaceScorer",
+    "HumanoidRunJumpScorer",
     "LeatherbackNavScorer",
     "LeatherbackMazeScorer",
     "SpotWaypointScorer",
@@ -63,6 +71,7 @@ __all__ = [
 
 REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
     ("navigation.humanoid", "v1"): HumanoidRaceScorer,
+    ("navigation.humanoid.runjump", "v1"): HumanoidRunJumpScorer,
     ("navigation.leatherback", "v1"): LeatherbackNavScorer,
     ("navigation.leatherback", "v2"): LeatherbackMazeScorer,
     ("navigation.spot", "v2"): SpotWaypointScorer,
@@ -74,6 +83,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
 
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.humanoid": ["v1"],
+    "navigation.humanoid.runjump": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],

@@ -95,6 +95,28 @@ class EpisodeRunner:
             slopes = np.asarray(buf["terrain_slope"])
             summary["mean_slope_deg"] = float(np.degrees(slopes.mean()))
             summary["max_slope_deg"] = float(np.degrees(slopes.max()))
+        if "action_l2" in buf and buf["action_l2"]:
+            summary["mean_action_l2"] = float(np.mean(buf["action_l2"]))
+        if "cleared_count" in buf and buf["cleared_count"]:
+            summary["final_cleared_count"] = float(buf["cleared_count"][-1])
+        if "apex_clearance_score" in buf and buf["apex_clearance_score"]:
+            scores = np.asarray(buf["apex_clearance_score"], dtype=np.float64)
+            summary["mean_apex_clearance_score"] = float(scores.mean())
+        if "apex_err" in buf and buf["apex_err"]:
+            summary["mean_apex_err"] = float(np.mean(buf["apex_err"]))
+        if "stable_clear" in buf and buf["stable_clear"]:
+            n_stable = float(len(buf["stable_clear"]))
+            cleared = float(summary.get("final_cleared_count", 0.0))
+            summary["stable_clear_rate"] = float(n_stable / max(cleared, 1.0))
+        elif "cleared_count" in buf and buf["cleared_count"]:
+            # Explicit zero when clears happened but no stable-clear pulses.
+            if float(summary.get("final_cleared_count", 0.0)) > 0.0:
+                summary["stable_clear_rate"] = 0.0
+        if "landing_impact_vz" in buf and buf["landing_impact_vz"]:
+            vz = np.asarray(buf["landing_impact_vz"], dtype=np.float64)
+            vz_ref = 3.5
+            summary["mean_peak_down_vz"] = float(vz.mean())
+            summary["mean_landing_impact_score"] = float(np.mean(np.clip(1.0 - vz / vz_ref, 0.0, 1.0)))
         return summary
     
     def run_episode(

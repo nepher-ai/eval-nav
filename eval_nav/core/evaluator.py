@@ -242,9 +242,10 @@ class NavigationEvaluator:
     
     
     def _load_policy_lazy(self, env: Any) -> Any:
-        """Load RSL-RL policy from checkpoint file using an existing environment.
+        """Load policy from checkpoint file using an existing environment.
         
         This is called lazily when we first have an environment available.
+        The loader workflow (``rsl_rl`` or ``skrl``) comes from ``EvalConfig.workflow``.
         
         Args:
             env: Existing gymnasium environment
@@ -258,7 +259,12 @@ class NavigationEvaluator:
         if self.checkpoint_path is None:
             return None
         
-        self._policy = load_policy_from_checkpoint(self.checkpoint_path, self.config.task_name, env)
+        self._policy = load_policy_from_checkpoint(
+            self.checkpoint_path,
+            self.config.task_name,
+            env,
+            workflow=self.config.workflow,
+        )
         return self._policy
     
     def _run_campaign(
