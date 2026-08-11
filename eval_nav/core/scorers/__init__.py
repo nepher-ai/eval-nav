@@ -22,7 +22,7 @@ Navigation
     - v1 : success_rate × (0.25 + 0.75 × time_efficiency)
 
 ``navigation.humanoid.runjump`` — G1 obstacle-course HL
-    - v1 : success_rate × (0.25 + 0.75 × (0.5×time + 0.5×AMP style))
+    - v1 : success_rate × (0.25 + 0.75 × (0.40×time + 0.35×clear_land + 0.25×safety_energy))
 
 Manipulation
 ~~~~~~~~~~~~

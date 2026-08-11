@@ -41,7 +41,7 @@ class EvalConfig:
     - ``"navigation.leatherback"`` — leatherback and ANYmal B waypoint navigation
     - ``"navigation.spot"``        — Spot quadruped tasks (waypoint or goal nav)
     - ``"navigation.humanoid"``    — G1 waypoint race
-    - ``"navigation.humanoid.runjump"`` — G1 obstacle-course HL (time + AMP style)
+    - ``"navigation.humanoid.runjump"`` — G1 obstacle-course HL (time + clear/land + safety)
     - ``"manipulation.pick_place"`` — Franka high-level pick-and-place
 
     ``scoring_version`` selects the algorithm *within* that task type:
@@ -51,7 +51,7 @@ class EvalConfig:
     +===========================+==========+=========================================+
     | navigation.humanoid       | v1       | SR-amplified: time efficiency only      |
     +---------------------------+----------+-----------------------------------------+
-    | navigation.humanoid.runjump | v1     | SR-amplified: 0.5 time + 0.5 AMP style  |
+    | navigation.humanoid.runjump | v1     | SR-amplified: time + clear_land + safety |
     +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |

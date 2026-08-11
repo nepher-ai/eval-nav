@@ -21,8 +21,8 @@ num_episodes: 1
 max_episode_steps: 2000
 max_episode_time_s: 40.0
 
-# Scorer: RunJump course — SR × (0.5 time_eff + 0.5 AMP style)
-# Style from EnvHub run_discriminator.pt / jump_discriminator.pt (by hl_mode).
+# Scorer: RunJump course — SR × (0.40 time + 0.35 clear_land + 0.25 safety_energy)
+# clear_land = clearance + land_stable + landing impact (peak -vz); no AMP discriminator.
 task_type: "navigation.humanoid.runjump"
 scoring_version: "v1"
 
