@@ -19,6 +19,7 @@ import yaml
 # eval_nav.core.scorers.VALID_VERSIONS_PER_TASK_TYPE.
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.humanoid": ["v1"],
+    "navigation.humanoid.runjump": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
@@ -39,6 +40,8 @@ class EvalConfig:
 
     - ``"navigation.leatherback"`` — leatherback and ANYmal B waypoint navigation
     - ``"navigation.spot"``        — Spot quadruped tasks (waypoint or goal nav)
+    - ``"navigation.humanoid"``    — G1 waypoint race
+    - ``"navigation.humanoid.runjump"`` — G1 obstacle-course HL (time + AMP style)
     - ``"manipulation.pick_place"`` — Franka high-level pick-and-place
 
     ``scoring_version`` selects the algorithm *within* that task type:
@@ -47,6 +50,8 @@ class EvalConfig:
     | task_type                 | versions | description                             |
     +===========================+==========+=========================================+
     | navigation.humanoid       | v1       | SR-amplified: time efficiency only      |
+    +---------------------------+----------+-----------------------------------------+
+    | navigation.humanoid.runjump | v1     | SR-amplified: 0.5 time + 0.5 AMP style  |
     +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |
@@ -158,8 +163,12 @@ class EvalConfig:
     # -----------------------------------------------------------------------
 
     policy_path: str | None = None
-    """Path to the RSL-RL checkpoint.  ``None`` or ``"default"`` resolves under
+    """Path to the policy checkpoint.  ``None`` or ``"default"`` resolves under
     ``<task-project>/best_policy/`` — tries ``best.pt`` then ``best_policy.pt``."""
+
+    workflow: str = "rsl_rl"
+    """RL framework used to load the checkpoint: ``"rsl_rl"`` (default) or
+    ``"skrl"``. Must match how the task package was trained."""
 
     # -----------------------------------------------------------------------
     # Class methods
@@ -261,6 +270,12 @@ class EvalConfig:
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")
 
+        if self.workflow not in ("rsl_rl", "skrl"):
+            raise ValueError(
+                f"Unsupported workflow: {self.workflow!r}. "
+                "Supported: ('rsl_rl', 'skrl')"
+            )
+
     # -----------------------------------------------------------------------
     # Serialization
     # -----------------------------------------------------------------------
@@ -285,6 +300,7 @@ class EvalConfig:
             "log_dir": self.log_dir,
             "enable_logging": self.enable_logging,
             "policy_path": self.policy_path,
+            "workflow": self.workflow,
         }
 
     # -----------------------------------------------------------------------

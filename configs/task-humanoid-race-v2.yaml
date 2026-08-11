@@ -1,0 +1,31 @@
+# Evaluation configuration for task-humanoid-running (complex-shape waypoint benchmark v2)
+
+task_name: "Nepher-Race-Waypoint-G1-Envhub-Play-v0"
+task_module: "humanoid_run"
+
+env_scenes:
+  - env_id: "humanoid-waypoint-benchmark-v2"
+    scene: 0
+
+seeds:
+  - 42
+
+# 50 envs — one per scenario in humanoid-waypoint-benchmark-v2
+num_envs: 50
+
+# 3 episodes × 50 envs = 150 rollouts
+num_episodes: 3
+
+# Episode length: max scenario waypoints (60) × 5 s/wp = 300 s @ 10 Hz = 3000 steps
+max_episode_steps: 3000
+max_episode_time_s: 300.0
+
+# Scorer: humanoid race navigation, version 1
+# navigation.humanoid supports: v1 (SR-amplified: time efficiency only)
+task_type: "navigation.humanoid"
+scoring_version: "v1"
+
+log_dir: "logs/humanoid-race-v2"
+enable_logging: true
+timeout_seconds: null
+policy_path: "default"

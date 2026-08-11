@@ -20,22 +20,22 @@ task_name: "Nepher-Leatherback-Lidar-Maze-Envhub-Play-v0"
 task_module: "leatherback_lidar"
 
 env_scenes:
-  - env_id: "leatherback-maze-v1"
+  - env_id: "leatherback-realmaze-v0"
     scene: 0
 
 seeds:
   - 42
 
 # 10 envs = one per maze; scale up to 64 for broader coverage
-num_envs: 10
+num_envs: 30
 
 # 5 episodes × 10 envs = 50 rollouts; each runs a different random seed reset
 # (same spawn/goal since env is deterministic, but policy stochasticity varies)
-num_episodes: 5
+num_episodes: 1
 
-# Episode length matches the training config (30 s at 15 Hz = 450 steps)
-max_episode_steps: 450
-max_episode_time_s: 30.0
+# Episode length matches the training config (300 s at 15 Hz = 4500 steps)
+max_episode_steps: 4500
+max_episode_time_s: 300.0
 
 # Scorer: leatherback maze navigation, version 2
 # navigation.leatherback supports: v1 (success+time), v2 (SR-amplified + limits)

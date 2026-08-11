@@ -95,6 +95,17 @@ class EpisodeRunner:
             slopes = np.asarray(buf["terrain_slope"])
             summary["mean_slope_deg"] = float(np.degrees(slopes.mean()))
             summary["max_slope_deg"] = float(np.degrees(slopes.max()))
+        if "style_score" in buf and buf["style_score"]:
+            styles = np.asarray(buf["style_score"], dtype=np.float64)
+            summary["mean_style"] = float(styles.mean())
+            if "hl_mode" in buf and buf["hl_mode"]:
+                modes = np.asarray(buf["hl_mode"], dtype=np.float64)
+                run_mask = modes < 0.5
+                jump_mask = ~run_mask
+                if run_mask.any():
+                    summary["mean_style_run"] = float(styles[run_mask].mean())
+                if jump_mask.any():
+                    summary["mean_style_jump"] = float(styles[jump_mask].mean())
         return summary
     
     def run_episode(

@@ -1,0 +1,35 @@
+# Evaluation configuration for task-humanoid-run-jump (deterministic course benchmark)
+
+task_name: "Nepher-G1-RunJumpHL-Envhub-Play-v0"
+task_module: "humanoid_run_jump"
+
+env_scenes:
+  - env_id: "humanoid-runjump-course-v1"
+    scene: 0
+
+seeds:
+  - 420
+
+# 64 envs — one per scenario in humanoid-runjump-course-v1
+num_envs: 64
+
+# 1 episodes × 64 envs = 64 rollouts
+num_episodes: 1
+
+# Match Envhub PLAY episode budget (40 s @ 50 Hz control = 2000 steps)
+# Quad courses (~40 m) still fit at trained run speeds.
+max_episode_steps: 2000
+max_episode_time_s: 40.0
+
+# Scorer: RunJump course — SR × (0.5 time_eff + 0.5 AMP style)
+# Style from EnvHub run_discriminator.pt / jump_discriminator.pt (by hl_mode).
+task_type: "navigation.humanoid.runjump"
+scoring_version: "v1"
+
+# HL policy is trained with skrl PPO
+workflow: "skrl"
+
+log_dir: "logs/humanoid-run-jump"
+enable_logging: true
+timeout_seconds: null
+policy_path: "default"

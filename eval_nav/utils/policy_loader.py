@@ -88,6 +88,7 @@ def _load_rsl_rl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> A
 def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any:
     """Load skrl policy from checkpoint."""
     from isaaclab_rl.skrl import SkrlVecEnvWrapper
+    from skrl.envs.wrappers.torch import Wrapper as SkrlEnvWrapper
     from skrl.utils.runner.torch import Runner
     
     experiment_cfg = load_cfg_from_registry(task_name, "skrl_cfg_entry_point")
@@ -97,17 +98,28 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
     
-    is_wrapped = isinstance(env, SkrlVecEnvWrapper)
+    # SkrlVecEnvWrapper is a factory function, not a class — check the skrl Wrapper base.
+    is_wrapped = isinstance(env, SkrlEnvWrapper)
     if not is_wrapped:
         current = env
-        while hasattr(current, "env"):
-            current = current.env
-            if isinstance(current, SkrlVecEnvWrapper):
+        while True:
+            next_env = getattr(current, "env", None)
+            if next_env is None and type(current).__name__ == "EvalCompatEnv":
+                next_env = getattr(current, "_env", None)
+            if next_env is None:
+                break
+            current = next_env
+            if isinstance(current, SkrlEnvWrapper):
                 is_wrapped = True
                 break
     
     if not is_wrapped:
-        env = SkrlVecEnvWrapper(env, ml_framework="torch")
+        # Prefer the underlying gym env when an EvalCompatEnv sits on top so skrl
+        # sees a normal gymnasium / Isaac Lab stack (same as play.py).
+        wrap_target = env
+        if type(wrap_target).__name__ == "EvalCompatEnv" and hasattr(wrap_target, "_env"):
+            wrap_target = wrap_target._env
+        env = SkrlVecEnvWrapper(wrap_target, ml_framework="torch")
     
     experiment_cfg = experiment_cfg.copy()
     experiment_cfg["trainer"]["close_environment_at_exit"] = False
@@ -117,14 +129,29 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
     
     runner.agent.load(checkpoint_path)
     runner.agent.set_running_mode("eval")
-    
+
+    # Episode runner steps the gym/EvalCompat stack (dict obs). skrl agents expect the
+    # flat policy tensor produced by IsaacLabWrapper — mirror that conversion here.
+    from skrl.utils.spaces.torch import flatten_tensorized_space, tensorize_space
+
+    def _to_skrl_obs(obs: Any) -> Any:
+        if isinstance(obs, dict):
+            if hasattr(env, "possible_agents"):
+                return {
+                    a: flatten_tensorized_space(tensorize_space(env.observation_spaces[a], obs[a]))
+                    for a in env.possible_agents
+                }
+            policy_obs = obs["policy"] if "policy" in obs else next(iter(obs.values()))
+            return flatten_tensorized_space(tensorize_space(env.observation_space, policy_obs))
+        return obs
+
     def policy_wrapper(obs):
         """Policy wrapper for evaluation."""
-        outputs = runner.agent.act(obs, timestep=0, timesteps=0)
+        outputs = runner.agent.act(_to_skrl_obs(obs), timestep=0, timesteps=0)
         if hasattr(env, "possible_agents"):
             return {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
         return outputs[-1].get("mean_actions", outputs[0])
-    
+
     policy_wrapper.policy_nn = runner.agent
     return policy_wrapper
 

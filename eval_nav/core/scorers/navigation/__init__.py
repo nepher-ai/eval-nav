@@ -15,9 +15,13 @@ Navigation task types
 
 from .leatherback import LeatherbackNavScorer
 from .leatherback_maze import LeatherbackMazeScorer
+from .humanoid import HumanoidRaceScorer
+from .humanoid_runjump import HumanoidRunJumpScorer
 from .spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
 __all__ = [
+    "HumanoidRaceScorer",
+    "HumanoidRunJumpScorer",
     "LeatherbackNavScorer",
     "LeatherbackMazeScorer",
     "SpotWaypointScorer",
