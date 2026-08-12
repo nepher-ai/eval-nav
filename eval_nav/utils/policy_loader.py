@@ -85,6 +85,25 @@ def _load_rsl_rl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> A
     return policy_wrapper
 
 
+def _alias_skrl_preprocessor_modules(agent: Any) -> None:
+    """Map skrl 1.x / 2.x preprocessor checkpoint keys onto each other.
+
+    skrl 1 stored the observation scaler as ``state_preprocessor``. skrl 2's
+    Runner rewrites that YAML field to ``observation_preprocessor``, so
+    ``agent.load`` would skip the scaler and leave RunningStandardScaler empty.
+    Point missing names at the live module so either checkpoint generation loads.
+    """
+    modules = getattr(agent, "checkpoint_modules", None)
+    if not isinstance(modules, dict):
+        return
+    obs = modules.get("observation_preprocessor")
+    state = modules.get("state_preprocessor")
+    if obs is not None and state is None:
+        modules["state_preprocessor"] = obs
+    elif state is not None and obs is None:
+        modules["observation_preprocessor"] = state
+
+
 def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any:
     """Load skrl policy from checkpoint."""
     from isaaclab_rl.skrl import SkrlVecEnvWrapper
@@ -126,7 +145,10 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
     experiment_cfg["agent"]["experiment"]["write_interval"] = 0
     experiment_cfg["agent"]["experiment"]["checkpoint_interval"] = 0
     runner = Runner(env, experiment_cfg)
-    
+
+    # skrl 2 remaps YAML ``state_preprocessor`` → ``observation_preprocessor``, so a
+    # skrl 1 checkpoint's ``state_preprocessor`` key is skipped unless we alias it.
+    _alias_skrl_preprocessor_modules(runner.agent)
     runner.agent.load(checkpoint_path)
     # skrl 1.x: set_running_mode / set_mode; skrl 2.x: enable_training_mode.
     agent = runner.agent
