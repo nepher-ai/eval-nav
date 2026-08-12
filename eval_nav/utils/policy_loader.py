@@ -128,7 +128,16 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
     runner = Runner(env, experiment_cfg)
     
     runner.agent.load(checkpoint_path)
-    runner.agent.set_running_mode("eval")
+    # skrl 1.x: set_running_mode / set_mode; skrl 2.x: enable_training_mode.
+    agent = runner.agent
+    if hasattr(agent, "set_running_mode"):
+        agent.set_running_mode("eval")
+    elif hasattr(agent, "enable_training_mode"):
+        agent.enable_training_mode(False, apply_to_models=True)
+    elif hasattr(agent, "set_mode"):
+        agent.set_mode("eval")
+    elif hasattr(agent, "enable_models_training_mode"):
+        agent.enable_models_training_mode(False)
 
     # Episode runner steps the gym/EvalCompat stack (dict obs). skrl agents expect the
     # flat policy tensor produced by IsaacLabWrapper — mirror that conversion here.
