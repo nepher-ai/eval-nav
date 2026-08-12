@@ -141,7 +141,15 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
 
     # Episode runner steps the gym/EvalCompat stack (dict obs). skrl agents expect the
     # flat policy tensor produced by IsaacLabWrapper — mirror that conversion here.
+    import inspect
+
+    import torch
     from skrl.utils.spaces.torch import flatten_tensorized_space, tensorize_space
+
+    # skrl 1.x: act(obs, *, timestep, timesteps)
+    # skrl 2.x: act(observations, states, *, timestep, timesteps)  (see Isaac Lab #5311)
+    _act_params = inspect.signature(agent.act).parameters
+    _skrl_v2_act = "observations" in _act_params and "states" in _act_params
 
     def _to_skrl_obs(obs: Any) -> Any:
         if isinstance(obs, dict):
@@ -154,13 +162,23 @@ def _load_skrl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> Any
             return flatten_tensorized_space(tensorize_space(env.observation_space, policy_obs))
         return obs
 
-    def policy_wrapper(obs):
-        """Policy wrapper for evaluation."""
-        outputs = runner.agent.act(_to_skrl_obs(obs), timestep=0, timesteps=0)
+    def _extract_actions(outputs: Any) -> Any:
+        # Both skrl generations return (actions, extras) / (... , extras); prefer mean.
         if hasattr(env, "possible_agents"):
             return {a: outputs[-1][a].get("mean_actions", outputs[0][a]) for a in env.possible_agents}
         return outputs[-1].get("mean_actions", outputs[0])
 
-    policy_wrapper.policy_nn = runner.agent
+    def policy_wrapper(obs):
+        """Policy wrapper for evaluation (skrl 1.x and 2.x)."""
+        skrl_obs = _to_skrl_obs(obs)
+        with torch.inference_mode():
+            if _skrl_v2_act:
+                states = env.state() if hasattr(env, "state") else None
+                outputs = agent.act(skrl_obs, states, timestep=0, timesteps=0)
+            else:
+                outputs = agent.act(skrl_obs, timestep=0, timesteps=0)
+        return _extract_actions(outputs)
+
+    policy_wrapper.policy_nn = agent
     return policy_wrapper
 
