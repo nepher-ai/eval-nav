@@ -117,6 +117,23 @@ class EpisodeRunner:
             vz_ref = 3.5
             summary["mean_peak_down_vz"] = float(vz.mean())
             summary["mean_landing_impact_score"] = float(np.mean(np.clip(1.0 - vz / vz_ref, 0.0, 1.0)))
+        if "lateral_offset_m" in buf and buf["lateral_offset_m"]:
+            y = np.asarray(buf["lateral_offset_m"], dtype=np.float64)
+            summary["mean_abs_lateral_offset_m"] = float(y.mean())
+            summary["max_abs_lateral_offset_m"] = float(y.max())
+            # Progress-weighted RMS: only meters of forward travel count.
+            # Falls back to uniform RMS when no forward progress was recorded.
+            y2 = y * y
+            if "progress_delta_m" in buf and len(buf["progress_delta_m"]) == len(y):
+                w = np.asarray(buf["progress_delta_m"], dtype=np.float64)
+                w = np.clip(w, 0.0, None)
+                w_sum = float(w.sum())
+                if w_sum > 1e-8:
+                    summary["rms_lateral_offset_m"] = float(np.sqrt(np.sum(w * y2) / w_sum))
+                else:
+                    summary["rms_lateral_offset_m"] = float(np.sqrt(y2.mean()))
+            else:
+                summary["rms_lateral_offset_m"] = float(np.sqrt(y2.mean()))
         return summary
     
     def run_episode(

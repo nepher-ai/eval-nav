@@ -7,7 +7,8 @@
 
 Evaluates a G1 high-level policy on the EnvHub obstacle-course benchmark.
 Success-rate-amplified score that blends completion time with clearance /
-landing quality and body safety / command energy (no AMP discriminator).
+landing quality, centerline tracking, and body safety / command energy
+(no AMP discriminator).
 
 Formula
 -------
@@ -16,7 +17,7 @@ Formula
     BASE = 0.25
 
     quality (per successful episode):
-        = 0.40 × time_eff + 0.35 × clear_land + 0.25 × safety_energy
+        = 0.35 × time_eff + 0.30 × clear_land + 0.20 × track + 0.15 × safety_energy
 
     time_eff:
         Uses physical time when max_episode_time_s is provided; else steps.
@@ -30,6 +31,15 @@ Formula
         land_stable ← extra["stable_clear_rate"]
         land_impact ← extra["mean_landing_impact_score"]
         Missing any of these → that sub-term is 0.0.
+
+    track:
+        Progress-weighted RMS lateral offset from the +x centerline, mapped with
+        a tight soft band (not the 2.5 m out-of-path kill wall):
+
+            track = clip01(1 − (rms_lateral_offset_m / Y_REF)²)
+            Y_REF = 0.75 m
+
+        Missing ``rms_lateral_offset_m`` → 0.0 (fail-closed).
 
     safety_energy:
         = 0.60 × body_stab + 0.40 × energy
@@ -55,14 +65,15 @@ from ..base import BaseScorer
 
 
 class HumanoidRunJumpScorer(BaseScorer):
-    """Humanoid RunJump course scorer (v1): SR × (time + clear_land + safety)."""
+    """Humanoid RunJump course scorer (v1): SR × (time + clear_land + track + safety)."""
 
     VERSION: str = "v1"
     BASE: float = 0.25
 
-    W_TIME: float = 0.40
-    W_CLEAR_LAND: float = 0.35
-    W_SAFETY_ENERGY: float = 0.25
+    W_TIME: float = 0.35
+    W_CLEAR_LAND: float = 0.30
+    W_TRACK: float = 0.20
+    W_SAFETY_ENERGY: float = 0.15
 
     W_CLEARANCE: float = 0.40
     W_LAND_STABLE: float = 0.30
@@ -74,6 +85,7 @@ class HumanoidRunJumpScorer(BaseScorer):
     MAX_VERTICAL_SPEED: float = 1.5
     MAX_ROLL_PITCH_RATE: float = 2.0
     ACTION_L2_REF: float = 1.5
+    Y_REF_M: float = 0.75
 
     def __init__(self, max_normalized_time: float = 1.0) -> None:
         self.max_normalized_time = max_normalized_time
@@ -103,6 +115,7 @@ class HumanoidRunJumpScorer(BaseScorer):
             "weights": {
                 "time_efficiency": self.W_TIME,
                 "clear_land": self.W_CLEAR_LAND,
+                "track": self.W_TRACK,
                 "safety_energy": self.W_SAFETY_ENERGY,
                 "clearance": self.W_CLEARANCE,
                 "land_stable": self.W_LAND_STABLE,
@@ -114,6 +127,7 @@ class HumanoidRunJumpScorer(BaseScorer):
                 "max_vertical_speed": self.MAX_VERTICAL_SPEED,
                 "max_roll_pitch_rate": self.MAX_ROLL_PITCH_RATE,
                 "action_l2_ref": self.ACTION_L2_REF,
+                "y_ref_m": self.Y_REF_M,
             },
             "base": self.BASE,
         }
@@ -141,10 +155,12 @@ class HumanoidRunJumpScorer(BaseScorer):
     ) -> float:
         time_eff = self._time_efficiency(ep, max_episode_steps, max_episode_time_s)
         clear_land = self._clear_land(ep)
+        track = self._track(ep)
         safety_energy = self._safety_energy(ep)
         return float(
             self.W_TIME * time_eff
             + self.W_CLEAR_LAND * clear_land
+            + self.W_TRACK * track
             + self.W_SAFETY_ENERGY * safety_energy
         )
 
@@ -181,6 +197,18 @@ class HumanoidRunJumpScorer(BaseScorer):
             + self.W_LAND_STABLE * land_stable
             + self.W_LAND_IMPACT * land_impact
         )
+
+    def _track(self, ep: EpisodeMetrics) -> float:
+        """Centerline score from progress-weighted RMS |y| (fail-closed)."""
+        ex = ep.extra or {}
+        rms = ex.get("rms_lateral_offset_m")
+        if rms is None:
+            return 0.0
+        y_ref = float(self.Y_REF_M)
+        if y_ref <= 0.0:
+            return 1.0
+        ratio = float(rms) / y_ref
+        return float(max(0.0, min(1.0, 1.0 - ratio * ratio)))
 
     def _safety_energy(self, ep: EpisodeMetrics) -> float:
         ex = ep.extra or {}

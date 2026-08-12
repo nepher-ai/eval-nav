@@ -21,8 +21,8 @@ num_episodes: 1
 max_episode_steps: 2000
 max_episode_time_s: 40.0
 
-# Scorer: RunJump course — SR × (0.40 time + 0.35 clear_land + 0.25 safety_energy)
-# clear_land = clearance + land_stable + landing impact (peak -vz); no AMP discriminator.
+# Scorer: RunJump course — SR × (0.35 time + 0.30 clear_land + 0.20 track + 0.15 safety)
+# track = clip01(1 − (rms_|y| / 0.75)²) with progress-weighted RMS; no AMP discriminator.
 task_type: "navigation.humanoid.runjump"
 scoring_version: "v1"
 
