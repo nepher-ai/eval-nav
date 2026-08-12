@@ -22,6 +22,12 @@ from ..domain.errors import EvaluationRuntimeError
 from ..domain.metrics import EpisodeMetrics
 from ..utils.state_logger import StateLogger
 from ..utils.task_checker import check_success
+from .telemetry import (
+    RawTelemetryCollector,
+    RunJumpDerivationCfg,
+    derive_kinematics_episode,
+    derive_runjump_episode,
+)
 
 
 class EpisodeRunner:
@@ -49,6 +55,10 @@ class EpisodeRunner:
         return callable(getattr(env, "get_locomotion_data", None))
 
     @staticmethod
+    def _has_raw_state(env: gym.Env) -> bool:
+        return callable(getattr(env, "get_raw_state", None))
+
+    @staticmethod
     def _collect_locomotion_step(
         env: gym.Env,
         buffers: dict[int, dict[str, list[float]]],
@@ -67,7 +77,11 @@ class EpisodeRunner:
 
     @staticmethod
     def _summarise_locomotion(buf: dict[str, list[float]]) -> dict[str, Any]:
-        """Reduce a per-step locomotion buffer into episode-level stats."""
+        """Reduce a per-step locomotion buffer into episode-level stats.
+
+        Legacy path for tasks that still expose ``get_locomotion_data``.
+        RunJump-only keys were removed; that task uses the raw-state pipeline.
+        """
         if not buf or not buf.get("speed_2d"):
             return {}
         speeds = np.asarray(buf["speed_2d"])
@@ -95,46 +109,24 @@ class EpisodeRunner:
             slopes = np.asarray(buf["terrain_slope"])
             summary["mean_slope_deg"] = float(np.degrees(slopes.mean()))
             summary["max_slope_deg"] = float(np.degrees(slopes.max()))
-        if "action_l2" in buf and buf["action_l2"]:
-            summary["mean_action_l2"] = float(np.mean(buf["action_l2"]))
-        if "cleared_count" in buf and buf["cleared_count"]:
-            summary["final_cleared_count"] = float(buf["cleared_count"][-1])
-        if "apex_clearance_score" in buf and buf["apex_clearance_score"]:
-            scores = np.asarray(buf["apex_clearance_score"], dtype=np.float64)
-            summary["mean_apex_clearance_score"] = float(scores.mean())
-        if "apex_err" in buf and buf["apex_err"]:
-            summary["mean_apex_err"] = float(np.mean(buf["apex_err"]))
-        if "stable_clear" in buf and buf["stable_clear"]:
-            n_stable = float(len(buf["stable_clear"]))
-            cleared = float(summary.get("final_cleared_count", 0.0))
-            summary["stable_clear_rate"] = float(n_stable / max(cleared, 1.0))
-        elif "cleared_count" in buf and buf["cleared_count"]:
-            # Explicit zero when clears happened but no stable-clear pulses.
-            if float(summary.get("final_cleared_count", 0.0)) > 0.0:
-                summary["stable_clear_rate"] = 0.0
-        if "landing_impact_vz" in buf and buf["landing_impact_vz"]:
-            vz = np.asarray(buf["landing_impact_vz"], dtype=np.float64)
-            vz_ref = 3.5
-            summary["mean_peak_down_vz"] = float(vz.mean())
-            summary["mean_landing_impact_score"] = float(np.mean(np.clip(1.0 - vz / vz_ref, 0.0, 1.0)))
-        if "lateral_offset_m" in buf and buf["lateral_offset_m"]:
-            y = np.asarray(buf["lateral_offset_m"], dtype=np.float64)
-            summary["mean_abs_lateral_offset_m"] = float(y.mean())
-            summary["max_abs_lateral_offset_m"] = float(y.max())
-            # Progress-weighted RMS: only meters of forward travel count.
-            # Falls back to uniform RMS when no forward progress was recorded.
-            y2 = y * y
-            if "progress_delta_m" in buf and len(buf["progress_delta_m"]) == len(y):
-                w = np.asarray(buf["progress_delta_m"], dtype=np.float64)
-                w = np.clip(w, 0.0, None)
-                w_sum = float(w.sum())
-                if w_sum > 1e-8:
-                    summary["rms_lateral_offset_m"] = float(np.sqrt(np.sum(w * y2) / w_sum))
-                else:
-                    summary["rms_lateral_offset_m"] = float(np.sqrt(y2.mean()))
-            else:
-                summary["rms_lateral_offset_m"] = float(np.sqrt(y2.mean()))
         return summary
+
+    @staticmethod
+    def _summarise_raw(
+        series: dict[str, np.ndarray],
+        metadata: dict[str, Any] | None,
+        *,
+        derivation_cfg: RunJumpDerivationCfg | None = None,
+    ) -> dict[str, Any]:
+        """Derive episode extras from a raw-state series (RunJump path)."""
+        extra = derive_kinematics_episode(series, metadata)
+        # RunJump event derivation when jump/mode telemetry is present.
+        if "hl_mode" in series or "ankle_pos_w" in series:
+            rj = derive_runjump_episode(series, metadata, cfg=derivation_cfg)
+            extra.update(rj)
+        if metadata and metadata.get("step_dt") is not None:
+            extra.setdefault("step_dt", float(metadata["step_dt"]))
+        return extra
     
     def run_episode(
         self,
@@ -188,10 +180,24 @@ class EpisodeRunner:
                 timeout = False
                 done_per_env = []
             
-            collect_loco = self._has_locomotion(env)
+            collect_raw = self._has_raw_state(env)
+            # Prefer raw pipeline when available; fall back to legacy locomotion.
+            collect_loco = (not collect_raw) and self._has_locomotion(env)
             loco_buffers: dict[int, dict[str, list[float]]] = (
                 defaultdict(lambda: defaultdict(list)) if collect_loco else {}
             )
+            raw_collector: RawTelemetryCollector | None = (
+                RawTelemetryCollector(num_envs) if collect_raw else None
+            )
+            if raw_collector is not None:
+                for env_idx in range(num_envs):
+                    meta = None
+                    if hasattr(env, "_log_metadata"):
+                        try:
+                            meta = env._log_metadata(env_idx=env_idx)  # type: ignore[attr-defined]
+                        except Exception:
+                            meta = None
+                    raw_collector.set_metadata(env_idx, meta)
             
             all_done = False
             steps = 0
@@ -200,6 +206,18 @@ class EpisodeRunner:
                 action = self._get_action(env, obs, policy, is_vectorized, num_envs, done_per_env)
                 obs, reward, terminated, truncated, info = env.step(action)
                 steps += 1
+
+                # Collect raw state first so `_log_state` can reuse the cache.
+                if collect_raw and raw_collector is not None:
+                    raw_collector.collect_step(
+                        env, done_per_env if is_vectorized else None
+                    )
+                elif collect_loco:
+                    if is_vectorized:
+                        for env_idx in range(num_envs):
+                            self._collect_locomotion_step(env, loco_buffers, env_idx, done_per_env[env_idx])
+                    else:
+                        self._collect_locomotion_step(env, loco_buffers, 0, False)
                 
                 if self.state_logger is not None:
                     if is_vectorized:
@@ -220,13 +238,6 @@ class EpisodeRunner:
                             env_idx=None,
                             info=info,
                         )
-                
-                if collect_loco:
-                    if is_vectorized:
-                        for env_idx in range(num_envs):
-                            self._collect_locomotion_step(env, loco_buffers, env_idx, done_per_env[env_idx])
-                    else:
-                        self._collect_locomotion_step(env, loco_buffers, 0, False)
                 
                 if is_vectorized:
                     all_done = self._update_vectorized_state(
@@ -261,12 +272,12 @@ class EpisodeRunner:
                 return self._finalize_vectorized_metrics(
                     env, info, scene, env_id, seed, episode_id, steps_per_env,
                     success_per_env, timeout_per_env, completion_time_per_env, num_envs,
-                    loco_buffers, step_dt=step_dt,
+                    loco_buffers, step_dt=step_dt, raw_collector=raw_collector,
                 )
             else:
                 return self._finalize_single_metrics(
                     env, info, scene, env_id, seed, episode_id, steps, success, timeout,
-                    loco_buffers.get(0, {}), step_dt=step_dt,
+                    loco_buffers.get(0, {}), step_dt=step_dt, raw_collector=raw_collector,
                 )
             
         except Exception as e:
@@ -498,6 +509,7 @@ class EpisodeRunner:
         num_envs: int,
         loco_buffers: dict[int, dict[str, list[float]]],
         step_dt: float | None = None,
+        raw_collector: RawTelemetryCollector | None = None,
     ) -> list[EpisodeMetrics]:
         """Finalize metrics for vectorized environment."""
         for env_idx in range(num_envs):
@@ -515,7 +527,13 @@ class EpisodeRunner:
         
         results: list[EpisodeMetrics] = []
         for env_idx in range(num_envs):
-            extra = self._summarise_locomotion(loco_buffers.get(env_idx, {}))
+            if raw_collector is not None:
+                extra = self._summarise_raw(
+                    raw_collector.series(env_idx),
+                    raw_collector.get_metadata(env_idx),
+                )
+            else:
+                extra = self._summarise_locomotion(loco_buffers.get(env_idx, {}))
             if step_dt is not None:
                 extra["step_dt"] = step_dt
             results.append(EpisodeMetrics(
@@ -544,6 +562,7 @@ class EpisodeRunner:
         timeout: bool,
         loco_buf: dict[str, list[float]] | None = None,
         step_dt: float | None = None,
+        raw_collector: RawTelemetryCollector | None = None,
     ) -> EpisodeMetrics:
         """Finalize metrics for single environment."""
         success = check_success(
@@ -559,7 +578,13 @@ class EpisodeRunner:
             raw_steps = float(steps)
             completion_time = raw_steps * step_dt if step_dt else raw_steps
         
-        extra = self._summarise_locomotion(loco_buf) if loco_buf else {}
+        if raw_collector is not None:
+            extra = self._summarise_raw(
+                raw_collector.series(0),
+                raw_collector.get_metadata(0),
+            )
+        else:
+            extra = self._summarise_locomotion(loco_buf) if loco_buf else {}
         if step_dt is not None:
             extra["step_dt"] = step_dt
         

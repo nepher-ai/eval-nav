@@ -10,6 +10,9 @@ Success-rate-amplified score that blends completion time with clearance /
 landing quality, centerline tracking, and body safety / command energy
 (no AMP discriminator).
 
+All [0,1] maps and detector constants live here. ``eval_compat`` only emits
+raw physics; ``eval_nav.core.telemetry`` derives unnormalized aggregates.
+
 Formula
 -------
     score = success_rate × (BASE + (1 − BASE) × mean_quality)
@@ -27,14 +30,14 @@ Formula
     clear_land:
         = 0.40 × clearance + 0.30 × land_stable + 0.30 × land_impact
 
-        clearance   ← extra["mean_apex_clearance_score"]
+        clearance   ← mean(clip01(apex_clearance_m / CLEARANCE_MARGIN_M))
+                      or clip01(mean_apex_clearance_m / CLEARANCE_MARGIN_M)
         land_stable ← extra["stable_clear_rate"]
-        land_impact ← extra["mean_landing_impact_score"]
+        land_impact ← mean(clip01(1 − landing_peak_vz / LANDING_VZ_REF))
         Missing any of these → that sub-term is 0.0.
 
     track:
-        Progress-weighted RMS lateral offset from the +x centerline, mapped with
-        a tight soft band (not the 2.5 m out-of-path kill wall):
+        Progress-weighted RMS lateral offset from the +x centerline:
 
             track = clip01(1 − (rms_lateral_offset_m / Y_REF)²)
             Y_REF = 0.75 m
@@ -61,6 +64,7 @@ from typing import Any
 import numpy as np
 
 from ....domain.metrics import AggregateMetrics, EpisodeMetrics
+from ...telemetry.derive.runjump import DEFAULT_CFG, RunJumpDerivationCfg
 from ..base import BaseScorer
 
 
@@ -86,6 +90,12 @@ class HumanoidRunJumpScorer(BaseScorer):
     MAX_ROLL_PITCH_RATE: float = 2.0
     ACTION_L2_REF: float = 1.5
     Y_REF_M: float = 0.75
+
+    # Migrated from eval_compat / episode_runner — scorer owns all maps.
+    CLEARANCE_MARGIN_M: float = 0.15
+    LANDING_VZ_REF: float = 3.5
+
+    DERIVATION_CFG: RunJumpDerivationCfg = DEFAULT_CFG
 
     def __init__(self, max_normalized_time: float = 1.0) -> None:
         self.max_normalized_time = max_normalized_time
@@ -128,7 +138,10 @@ class HumanoidRunJumpScorer(BaseScorer):
                 "max_roll_pitch_rate": self.MAX_ROLL_PITCH_RATE,
                 "action_l2_ref": self.ACTION_L2_REF,
                 "y_ref_m": self.Y_REF_M,
+                "clearance_margin_m": self.CLEARANCE_MARGIN_M,
+                "landing_vz_ref": self.LANDING_VZ_REF,
             },
+            "derivation": self.DERIVATION_CFG.to_dict(),
             "base": self.BASE,
         }
 
@@ -183,20 +196,54 @@ class HumanoidRunJumpScorer(BaseScorer):
 
     def _clear_land(self, ep: EpisodeMetrics) -> float:
         ex = ep.extra or {}
-        clearance = self._clip01(ex.get("mean_apex_clearance_score"))
+        clearance = self._clearance_score(ex)
         land_stable = self._clip01(ex.get("stable_clear_rate"))
-        land_impact = self._clip01(ex.get("mean_landing_impact_score"))
-        # Fail-closed: jumps with clears but no impact samples → impact 0.
+        land_impact = self._landing_impact_score(ex)
         cleared = ex.get("final_cleared_count")
         if cleared is None and "cleared_count" in ex:
             cleared = ex.get("cleared_count")
-        if cleared is not None and float(cleared) > 0 and ex.get("mean_landing_impact_score") is None:
+        if cleared is not None and float(cleared) > 0 and land_impact is None:
+            land_impact = 0.0
+        if land_impact is None:
             land_impact = 0.0
         return float(
             self.W_CLEARANCE * clearance
             + self.W_LAND_STABLE * land_stable
             + self.W_LAND_IMPACT * land_impact
         )
+
+    def _clearance_score(self, ex: dict[str, Any]) -> float:
+        samples = ex.get("apex_clearance_m")
+        margin = float(self.CLEARANCE_MARGIN_M)
+        if margin <= 0.0:
+            return 1.0
+        if isinstance(samples, (list, tuple)) and len(samples) > 0:
+            scores = [self._clip01(float(c) / margin) for c in samples]
+            return float(np.mean(scores))
+        mean_m = ex.get("mean_apex_clearance_m")
+        if mean_m is not None:
+            return self._clip01(float(mean_m) / margin)
+        # Legacy key (pre-raw-telemetry) — fail-closed if absent.
+        legacy = ex.get("mean_apex_clearance_score")
+        return self._clip01(legacy)
+
+    def _landing_impact_score(self, ex: dict[str, Any]) -> float | None:
+        samples = ex.get("landing_peak_vz")
+        vz_ref = float(self.LANDING_VZ_REF)
+        if isinstance(samples, (list, tuple)) and len(samples) > 0:
+            if vz_ref <= 0.0:
+                return 1.0
+            scores = [float(max(0.0, min(1.0, 1.0 - float(v) / vz_ref))) for v in samples]
+            return float(np.mean(scores))
+        mean_vz = ex.get("mean_landing_peak_vz")
+        if mean_vz is not None:
+            if vz_ref <= 0.0:
+                return 1.0
+            return float(max(0.0, min(1.0, 1.0 - float(mean_vz) / vz_ref)))
+        # Legacy key.
+        if "mean_landing_impact_score" in ex:
+            return self._clip01(ex.get("mean_landing_impact_score"))
+        return None
 
     def _track(self, ep: EpisodeMetrics) -> float:
         """Centerline score from progress-weighted RMS |y| (fail-closed)."""
