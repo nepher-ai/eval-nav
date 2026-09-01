@@ -19,7 +19,7 @@ import yaml
 # eval_nav.core.scorers.VALID_VERSIONS_PER_TASK_TYPE.
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.humanoid": ["v1"],
-    "navigation.humanoid.runjump": ["v1"],
+    "navigation.humanoid.runjump": ["v1", "v2"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
@@ -52,6 +52,7 @@ class EvalConfig:
     | navigation.humanoid       | v1       | SR-amplified: time efficiency only      |
     +---------------------------+----------+-----------------------------------------+
     | navigation.humanoid.runjump | v1     | SR-amplified: time + clear_land + track + safety |
+    |                           | v2     | SR × mean(N × flat speed/clear/land/track)      |
     +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |

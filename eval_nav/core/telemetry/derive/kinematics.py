@@ -74,6 +74,8 @@ def derive_kinematics_episode(
         else:
             out["rms_lateral_offset_m"] = float(np.sqrt(y2.mean()))
 
+        out["progress_s_m"] = float(s_max[-1])
+
     hl = series.get("hl_action")
     if hl is not None and len(hl) > 0:
         hl = np.asarray(hl, dtype=np.float64)

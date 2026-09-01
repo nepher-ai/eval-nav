@@ -17,11 +17,13 @@ from .leatherback import LeatherbackNavScorer
 from .leatherback_maze import LeatherbackMazeScorer
 from .humanoid import HumanoidRaceScorer
 from .humanoid_runjump import HumanoidRunJumpScorer
+from .humanoid_runjump_v2 import HumanoidRunJumpScorerV2
 from .spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointScorer
 
 __all__ = [
     "HumanoidRaceScorer",
     "HumanoidRunJumpScorer",
+    "HumanoidRunJumpScorerV2",
     "LeatherbackNavScorer",
     "LeatherbackMazeScorer",
     "SpotWaypointScorer",

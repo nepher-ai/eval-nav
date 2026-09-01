@@ -26,6 +26,7 @@ from .telemetry import (
     RawTelemetryCollector,
     RunJumpDerivationCfg,
     derive_kinematics_episode,
+    derive_naturalness_episode,
     derive_runjump_episode,
 )
 
@@ -124,8 +125,12 @@ class EpisodeRunner:
         if "hl_mode" in series or "ankle_pos_w" in series:
             rj = derive_runjump_episode(series, metadata, cfg=derivation_cfg)
             extra.update(rj)
+            nat = derive_naturalness_episode(series, metadata)
+            extra.update(nat)
         if metadata and metadata.get("step_dt") is not None:
             extra.setdefault("step_dt", float(metadata["step_dt"]))
+        if metadata and metadata.get("path_length") is not None:
+            extra.setdefault("course_length_m", float(metadata["path_length"]))
         return extra
     
     def run_episode(

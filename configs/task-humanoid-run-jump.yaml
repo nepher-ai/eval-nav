@@ -21,10 +21,11 @@ num_episodes: 1
 max_episode_steps: 2000
 max_episode_time_s: 40.0
 
-# Scorer: RunJump course — SR × (0.35 time + 0.30 clear_land + 0.20 track + 0.15 safety)
+# Scorer: RunJump course v2 — SR × mean(N × (0.40 speed + 0.20 clearance + 0.15 land_stable + 0.15 land_impact + 0.10 track))
+# speed = ramp(course_length_m / elapsed_s, 0, 3.0); N = n_cross × n_posture × n_spin (v1 remains registered).
 # track = clip01(1 − (rms_|y| / 0.75)²) with progress-weighted RMS; no AMP discriminator.
 task_type: "navigation.humanoid.runjump"
-scoring_version: "v1"
+scoring_version: "v2"
 
 # HL policy is trained with skrl PPO
 workflow: "skrl"
