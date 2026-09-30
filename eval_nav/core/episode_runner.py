@@ -31,6 +31,28 @@ from .telemetry import (
 )
 
 
+def _reset_policy_state(policy: Any | None, dones: Any = None) -> None:
+    """Clear a recurrent policy's hidden state.
+
+    ``dones`` selects environments. ``None`` clears every environment. MLP
+    policies expose ``reset`` as a no-op. Policies without it are left alone.
+    """
+    reset = getattr(policy, "reset", None)
+    if reset is not None:
+        reset(dones)
+
+
+def _reset_finished_policy_state(policy: Any | None, terminated: Any, truncated: Any) -> None:
+    """Clear hidden state only for environments that ended on this step."""
+    if torch.is_tensor(terminated):
+        dones = terminated | truncated if torch.is_tensor(truncated) else terminated
+        if bool(dones.any()):
+            _reset_policy_state(policy, dones)
+        return
+    if bool(terminated) or bool(truncated):
+        _reset_policy_state(policy)
+
+
 class EpisodeRunner:
     """Runs episodes for navigation evaluation."""
     
@@ -159,6 +181,8 @@ class EpisodeRunner:
         """
         try:
             obs, info = env.reset(seed=seed)
+            # A new episode must not inherit the LSTM state from the previous one.
+            _reset_policy_state(policy)
             max_steps = self.config.max_episode_steps or getattr(env.unwrapped, "max_episode_length", 900)
             step_dt: float | None = getattr(env.unwrapped, "step_dt", None)
 
@@ -211,6 +235,7 @@ class EpisodeRunner:
                 action = self._get_action(env, obs, policy, is_vectorized, num_envs, done_per_env)
                 obs, reward, terminated, truncated, info = env.step(action)
                 steps += 1
+                _reset_finished_policy_state(policy, terminated, truncated)
 
                 # Collect raw state first so `_log_state` can reuse the cache.
                 if collect_raw and raw_collector is not None:

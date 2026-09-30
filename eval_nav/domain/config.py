@@ -20,6 +20,7 @@ import yaml
 _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.humanoid": ["v1"],
     "navigation.humanoid.runjump": ["v1", "v2"],
+    "navigation.go2": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
@@ -42,6 +43,7 @@ class EvalConfig:
     - ``"navigation.spot"``        — Spot quadruped tasks (waypoint or goal nav)
     - ``"navigation.humanoid"``    — G1 waypoint race
     - ``"navigation.humanoid.runjump"`` — G1 obstacle-course HL (time + clear/land + track + safety)
+    - ``"navigation.go2"`` — Go2 LiDAR maze (time vs rated speed + path + stability + envelope)
     - ``"manipulation.pick_place"`` — Franka high-level pick-and-place
 
     ``scoring_version`` selects the algorithm *within* that task type:
@@ -53,6 +55,8 @@ class EvalConfig:
     +---------------------------+----------+-----------------------------------------+
     | navigation.humanoid.runjump | v1     | SR-amplified: time + clear_land + track + safety |
     |                           | v2     | SR × mean(N × flat speed/clear/land/track)      |
+    +---------------------------+----------+-----------------------------------------+
+    | navigation.go2            | v1       | SR-amplified: time vs 3.7 m/s + path + stability + envelope |
     +---------------------------+----------+-----------------------------------------+
     | navigation.leatherback    | v1       | success (70%) + time (30%)              |
     |                           | v2       | SR-amplified: time + speed/yaw limits   |

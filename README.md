@@ -24,8 +24,10 @@ Configs for each campaign: [configs/](configs/).
 ## Usage
 
 ```bash
-python scripts/evaluate.py --config configs/<task>.yaml --headless
+python scripts/evaluate.py --config configs/<task>.yaml --viz none
 ```
+
+`--viz none` runs without a window. Isaac Lab 3 has no `--headless` flag.
 
 Results are written under `log_dir` as `results.json`, `summary.txt`, and `config.yaml`.
 
