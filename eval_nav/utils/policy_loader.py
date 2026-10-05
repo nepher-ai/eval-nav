@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata as metadata
 import os
 from typing import Any
 
@@ -14,9 +15,13 @@ import gymnasium as gym
 
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
+from isaaclab_rl import rsl_rl as _rsl_rl
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
+
+# Lab 3 exports this helper. Lab 2.3 does not; its rsl-rl still accepts the legacy policy config.
+handle_deprecated_rsl_rl_cfg = getattr(_rsl_rl, "handle_deprecated_rsl_rl_cfg", None)
 
 
 def load_policy_from_checkpoint(checkpoint_path: str, task_name: str, env: gym.Env, workflow: str = "rsl_rl") -> Any:
@@ -46,6 +51,12 @@ def _load_rsl_rl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> A
     agent_cfg = load_cfg_from_registry(task_name, "rsl_rl_cfg_entry_point")
     if not isinstance(agent_cfg, RslRlBaseRunnerCfg):
         raise ValueError(f"Expected RslRlBaseRunnerCfg, got {type(agent_cfg)}")
+    # rsl-rl >= 5 rejects the legacy ``stochastic`` fields still present on the
+    # Isaac Lab model configs. Play and train already strip them; without this
+    # the runner fails to construct and evaluation falls back to random actions.
+    # Lab 2.3 has no helper and still accepts those fields.
+    if handle_deprecated_rsl_rl_cfg is not None:
+        agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
     
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
@@ -71,17 +82,53 @@ def _load_rsl_rl_policy(checkpoint_path: str, task_name: str, env: gym.Env) -> A
     
     runner.load(checkpoint_path)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
-    
-    try:
-        policy_nn = runner.alg.policy
-    except AttributeError:
-        policy_nn = runner.alg.actor_critic
-    
-    def policy_wrapper(obs):
-        """Policy wrapper for evaluation."""
-        return policy(obs)
-    
-    policy_wrapper.policy_nn = policy_nn
+
+    # rsl-rl < 2.3 stores one module as ``actor_critic``. 2.3–3 use ``policy``.
+    # >= 4 splits the network into ``actor`` and ``critic`` and has neither name.
+    policy_nn = getattr(runner.alg, "policy", None)
+    if policy_nn is None:
+        policy_nn = getattr(runner.alg, "actor_critic", None)
+    if policy_nn is None:
+        policy_nn = getattr(runner.alg, "actor", None)
+
+    import torch
+
+    # Lab 2.3 returns ``act_inference`` (a bound method). Those tournaments were
+    # scored from that grad-enabled mean, so leave the call unchanged.
+    # Lab 3 returns the model module. Detach its output: a grad-enabled action
+    # reaches the frozen low-level policy and Warp refuses it. ``no_grad`` rather
+    # than ``inference_mode`` so an LSTM hidden state can be cleared next episode.
+    recurrent = bool(getattr(policy, "is_recurrent", False) or getattr(policy_nn, "is_recurrent", False))
+    if isinstance(policy, torch.nn.Module):
+
+        def policy_wrapper(obs):
+            """Policy wrapper for evaluation."""
+            with torch.no_grad():
+                action = policy(obs)
+            if torch.is_tensor(action):
+                return action.detach()
+            if isinstance(action, dict):
+                return {key: value.detach() if torch.is_tensor(value) else value for key, value in action.items()}
+            return action
+
+        if recurrent:
+
+            def reset_hidden(dones=None):
+                """Clear the recurrent state. ``dones`` selects environments; None clears all."""
+                reset = getattr(policy, "reset", None)
+                if reset is None and policy_nn is not None:
+                    reset = getattr(policy_nn, "reset", None)
+                if reset is not None:
+                    reset(dones)
+
+            policy_wrapper.reset = reset_hidden
+    else:
+
+        def policy_wrapper(obs):
+            """Policy wrapper for evaluation."""
+            return policy(obs)
+
+    policy_wrapper.policy_nn = policy_nn if policy_nn is not None else policy
     return policy_wrapper
 
 

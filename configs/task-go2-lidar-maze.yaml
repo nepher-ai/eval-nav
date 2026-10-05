@@ -1,0 +1,41 @@
+# Evaluation configuration for go2-maze-v0
+#
+# 60 enclosed mazes (8×8 / 9×9 / 10×10, corridors 2.0 / 2.5 / 3.0 m).
+# One robot per tile. Scoring is navigation.go2 v1: success rate times
+# time against the Go2 EDU rated speed (3.7 m/s), path efficiency,
+# stability, and the 3.7–5.0 m/s hardware envelope.
+#
+# Prerequisites:
+#   1. EnvHub can resolve ``go2-maze-v0`` (bundled or nepher cache).
+#   2. Install go2_lidar_maze: pip install -e task-go2-lidar-maze/source/go2_lidar_maze
+#   3. Install nepher (envhub): pip install -e envhub
+#   4. task-go2-lidar-maze/best_policy/best_policy.pt and
+#      best_policy/ll_policy/ll_policy.pt both exist.
+
+task_name: "Nepher-Go2-LidarMaze-Planner-Envhub-Play-v0"
+task_module: "go2_lidar_maze.tasks"
+
+env_scenes:
+  - env_id: "go2-maze-v0"
+    scene: 0
+
+seeds:
+  - 42
+
+# One parallel env per maze tile
+num_envs: 60
+
+num_episodes: 1
+
+# 180 s at the 10 Hz high-level rate
+max_episode_steps: 1800
+max_episode_time_s: 180.0
+
+task_type: "navigation.go2"
+scoring_version: "v1"
+
+log_dir: "logs/go2-lidar-maze"
+enable_logging: true
+timeout_seconds: null
+policy_path: "default"
+workflow: "rsl_rl"

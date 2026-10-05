@@ -25,6 +25,9 @@ Navigation
     - v1 : success_rate × (0.25 + 0.75 × (0.35×time + 0.30×clear_land + 0.20×track + 0.15×safety))
     - v2 : success_rate × mean(N × (0.40×speed + 0.20×clearance + 0.15×land_stable + 0.15×land_impact + 0.10×track))
 
+``navigation.go2`` — Unitree Go2 LiDAR maze
+    - v1 : success_rate × (0.25 + 0.75 × (0.45×time + 0.25×path + 0.20×stability + 0.10×envelope))
+
 Manipulation
 ~~~~~~~~~~~~
 ``manipulation.pick_place`` — arm pick-and-place tasks (e.g. Franka HL)
@@ -44,6 +47,7 @@ from __future__ import annotations
 
 from .base import BaseScorer
 from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
+from .navigation.go2_maze import Go2MazeScorer
 from .navigation.humanoid import HumanoidRaceScorer
 from .navigation.humanoid_runjump import HumanoidRunJumpScorer
 from .navigation.humanoid_runjump_v2 import HumanoidRunJumpScorerV2
@@ -53,6 +57,7 @@ from .navigation.spot import SpotGoalScorerV3, SpotGoalScorerV4, SpotWaypointSco
 
 __all__ = [
     "BaseScorer",
+    "Go2MazeScorer",
     "HumanoidRaceScorer",
     "HumanoidRunJumpScorer",
     "HumanoidRunJumpScorerV2",
@@ -76,6 +81,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
     ("navigation.humanoid", "v1"): HumanoidRaceScorer,
     ("navigation.humanoid.runjump", "v1"): HumanoidRunJumpScorer,
     ("navigation.humanoid.runjump", "v2"): HumanoidRunJumpScorerV2,
+    ("navigation.go2", "v1"): Go2MazeScorer,
     ("navigation.leatherback", "v1"): LeatherbackNavScorer,
     ("navigation.leatherback", "v2"): LeatherbackMazeScorer,
     ("navigation.spot", "v2"): SpotWaypointScorer,
@@ -88,6 +94,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.humanoid": ["v1"],
     "navigation.humanoid.runjump": ["v1", "v2"],
+    "navigation.go2": ["v1"],
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
