@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 SOURCE = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(SOURCE / "nepher-brain"))
+sys.path.insert(0, str(SOURCE / "nepher-brain-comm"))
 
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.lockstep import run_shard
@@ -21,8 +21,8 @@ from eval_nav.core.scorers import get_scorer
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
 from eval_nav.runtime.brain import BrainRuntime
-from nepher_brain.client import BrainClient
-from nepher_brain.serve import run_replica
+from nepher_brain_comm.client import BrainClient
+from nepher_brain_comm.serve import run_replica
 
 
 MANIFEST = {
@@ -118,7 +118,7 @@ def test_lockstep_hashes_match_across_runs():
 def test_brain_runtime_against_zero_brain(tmp_path: Path):
     import argparse
 
-    submission = SOURCE / "nepher-brain" / "examples" / "zero_brain"
+    submission = SOURCE / "nepher-brain-comm" / "examples" / "zero_brain"
     args = argparse.Namespace(
         entry=None,
         replicas=1,

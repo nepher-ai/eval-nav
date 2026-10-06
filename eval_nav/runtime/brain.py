@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Brain runtime. The client lives in nepher-brain, which brain-mode installs."""
+"""Brain runtime. The client lives in nepher-brain-comm, which brain-mode installs."""
 
 from __future__ import annotations
 

@@ -65,7 +65,7 @@ def main() -> None:
     unwrapped = env.unwrapped
     client = None
     if group.get("runtime") == "brain":
-        from nepher_brain.client import BrainClient
+        from nepher_brain_comm.client import BrainClient
 
         client = BrainClient(group["socket"], timeout_s=float(group["step_timeout_s"]))
         client.connect()
