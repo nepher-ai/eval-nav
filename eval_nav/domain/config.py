@@ -69,7 +69,7 @@ class EvalConfig:
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
-    | manipulation.multitask    | v1       | mean over tasks of success_rate         |
+    | manipulation.multitask    | v1       | SR × (0.30 + 0.70 × speed/smoothness) |
     +---------------------------+----------+-----------------------------------------+
     """
 
@@ -132,9 +132,9 @@ class EvalConfig:
     """Maximum steps per episode.  If None, uses the environment default."""
 
     max_episode_time_s: float | None = None
-    """Physical time budget in seconds.  When set, v3/v4 scorers normalize time
-    efficiency against seconds instead of steps (decimation-invariant).
-    If None, the evaluator auto-detects from the environment."""
+    """Physical time budget [s]. Multitask v1 uses it as ``T_budget`` for speed.
+    Navigation v3/v4 scorers normalize time efficiency against it as well.
+    If None, multitask speed uses the step count against ``max_episode_steps``."""
 
     # -----------------------------------------------------------------------
     # Environment extras

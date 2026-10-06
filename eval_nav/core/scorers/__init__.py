@@ -35,7 +35,8 @@ Manipulation
     - v2 : success_rate × (0.75 + 0.25 × time_efficiency)  [success rate is first-class multiplier]
 
 ``manipulation.multitask`` — several manipulation families in one benchmark
-    - v1 : mean over tasks of success_rate(task)
+    - v1 : mean over tasks of success_rate × (0.30 + 0.70 × quality);
+           quality = 0.70 × speed + 0.30 × hand-path smoothness
 
 Usage
 -----

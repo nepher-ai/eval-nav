@@ -72,17 +72,111 @@ def test_shards_stay_inside_one_group():
     assert sum(len(shard.jobs) for shard in shards) == 32 + 3
 
 
-def test_multitask_score_is_the_mean_of_task_rates():
+def test_sparc_is_closer_to_zero_for_a_minimum_jerk_reach():
+    from eval_nav.core.smoothness import sparc_from_positions
+
+    dt = 0.04
+    t = np.arange(0.0, 4.0, dt)
+    u = t / t[-1]
+    reach = 10 * u**3 - 15 * u**4 + 6 * u**5
+    smooth = np.stack((reach, np.zeros_like(reach), np.zeros_like(reach)), axis=1)
+    wobble = reach + 0.03 * np.sin(2 * np.pi * 8 * t)
+    jerky = np.stack((wobble, 0.02 * np.sin(2 * np.pi * 7 * t), np.zeros_like(reach)), axis=1)
+    smooth_sparc = sparc_from_positions(smooth, dt)
+    jerky_sparc = sparc_from_positions(jerky, dt)
+    assert smooth_sparc is not None and jerky_sparc is not None
+    assert smooth_sparc > jerky_sparc
+
+
+def test_multitask_score_mixes_speed_and_smoothness():
+    # Budget 20 s. place_relative finishes at 8 s on a minimum-jerk path.
+    # speed = 0.6, smoothness = 1, quality = 0.72, task_score = 0.804.
+    # place_in_container never succeeds, so its task score is 0.
     episodes = [
-        EpisodeMetrics(0, "a", 1, True, 10, False, extra={"task_id": "place_in_container"}),
-        EpisodeMetrics(1, "a", 1, False, 10, True, extra={"task_id": "place_in_container"}),
-        EpisodeMetrics(2, "b", 1, True, 10, False, extra={"task_id": "stack_on"}),
+        EpisodeMetrics(
+            0,
+            "a",
+            1,
+            True,
+            200,
+            False,
+            completion_time=8.0,
+            extra={"task_id": "place_relative", "sparc": -1.40},
+        ),
+        EpisodeMetrics(
+            1,
+            "b",
+            1,
+            False,
+            500,
+            True,
+            extra={"task_id": "place_in_container", "sparc": -4.0},
+        ),
     ]
     scorer = get_scorer("manipulation.multitask", "v1")
-    score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 100, episodes)
-    assert score == 0.75
-    assert scorer.task_rates["place_in_container"] == 0.5
-    assert scorer.task_rates["stack_on"] == 1.0
+    score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 500, episodes, max_episode_time_s=20.0)
+    relative = scorer.tasks["place_relative"]
+    assert abs(relative["speed"] - 0.6) < 1e-9
+    assert abs(relative["smoothness"] - 1.0) < 1e-9
+    assert abs(relative["quality"] - 0.72) < 1e-9
+    assert abs(relative["task_score"] - 0.804) < 1e-9
+    assert scorer.tasks["place_in_container"]["task_score"] == 0.0
+    assert scorer.task_rates["place_in_container"] == 0.0
+    assert abs(score - 0.402) < 1e-9
+
+
+def test_multitask_clips_a_late_jerky_success():
+    # Finishing at the time budget with the jerky SPARC bound: speed 0, smoothness 0.
+    # task_score = 1 * 0.30.
+    episodes = [
+        EpisodeMetrics(
+            0,
+            "a",
+            1,
+            True,
+            500,
+            False,
+            completion_time=20.0,
+            extra={"task_id": "place_relative", "sparc": -4.0},
+        )
+    ]
+    scorer = get_scorer("manipulation.multitask", "v1")
+    score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 500, episodes, max_episode_time_s=20.0)
+    assert scorer.tasks["place_relative"]["speed"] == 0.0
+    assert scorer.tasks["place_relative"]["smoothness"] == 0.0
+    assert abs(score - 0.30) < 1e-9
+
+
+def test_evaluation_summary_lists_task_terms(tmp_path: Path):
+    from eval_nav.benchmark.aggregate import score_records, write_outputs
+
+    records = [
+        {
+            "job_id": "a",
+            "task_id": "place_relative",
+            "scene_id": "kitchen_counter-0",
+            "variant": "nominal",
+            "episode_index": 0,
+            "seed": 1,
+            "success": True,
+            "failed": False,
+            "steps": 200,
+            "timeout": False,
+            "completion_time_s": 8.0,
+            "sparc": -1.40,
+            "trajectory_hash": "abc",
+        }
+    ]
+    score, metrics, report = score_records(records, "manipulation.multitask", "v1", 500, max_episode_time_s=20.0)
+    write_outputs(tmp_path, score, metrics, records, report=report, metadata={"runtime": "brain"})
+    text = (tmp_path / "summary.txt").read_text(encoding="utf-8")
+    assert "task place_relative:" in text
+    assert "task_score:" in text
+    assert "time_s=8.000000" in text
+    assert "smoothness=1.000000" in text
+    payload = (tmp_path / "evaluation_result.json").read_text(encoding="utf-8")
+    assert '"tasks"' in payload
+    assert '"episodes"' in payload
 
 
 def test_brain_config_requires_brain_fields(tmp_path: Path):

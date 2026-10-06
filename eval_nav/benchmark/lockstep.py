@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from ..core.smoothness import sparc_from_positions
 from .expand import Shard
 
 
@@ -90,8 +91,13 @@ def run_shard(
             break
     runtime.end_episode(ids)
     poses = np.asarray(env.get_raw_state())
+    control_dt_s = float(getattr(env, "step_dt", 0.04) or 0.04)
+    paths = env.hand_positions() if hasattr(env, "hand_positions") else None
     records = []
     for index, job in enumerate(shard.jobs):
+        done = bool(success[index])
+        taken = int(steps[index])
+        path = None if paths is None or index >= len(paths) else paths[index]
         records.append(
             {
                 "job_id": job.job_id,
@@ -100,10 +106,13 @@ def run_shard(
                 "variant": job.variant,
                 "episode_index": job.episode_index,
                 "seed": job.seed,
-                "success": bool(success[index]),
+                "success": done,
                 "failed": bool(failed[index]),
-                "steps": int(steps[index]),
+                "steps": taken,
                 "timeout": not bool(frozen[index]),
+                "control_dt_s": control_dt_s,
+                "completion_time_s": taken * control_dt_s if done else None,
+                "sparc": None if path is None else sparc_from_positions(path, control_dt_s),
                 "trajectory_hash": trajectory_hash([row[index] for row in logged], poses[index]),
             }
         )

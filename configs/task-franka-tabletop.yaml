@@ -19,8 +19,8 @@ seeds:
 
 num_envs: 4
 num_episodes: 1
-max_episode_steps: 400
-max_episode_time_s: 40.0
+max_episode_steps: 500
+max_episode_time_s: 20.0
 
 log_dir: "logs/franka-tabletop"
 enable_logging: false

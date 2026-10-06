@@ -46,13 +46,19 @@ def main(argv: list[str] | None = None) -> None:
     else:
         metadata_canary = {"canary": "skipped"}
     max_steps = config.max_episode_steps or 1
-    score, metrics, rates = score_records(records, config.task_type, config.scoring_version, max_steps)
+    score, metrics, report = score_records(
+        records,
+        config.task_type,
+        config.scoring_version,
+        max_steps,
+        max_episode_time_s=config.max_episode_time_s,
+    )
     write_outputs(
         output_dir,
         score,
         metrics,
         records,
-        task_rates=rates,
+        report=report,
         metadata={"runtime": config.runtime, "version": manifest.version, **metadata_canary},
     )
     if args.result_path:
