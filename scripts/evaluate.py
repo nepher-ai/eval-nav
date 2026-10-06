@@ -4,9 +4,13 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Command-line interface for navigation evaluation.
+"""Evaluate a tournament submission.
 
-Launch Isaac Sim Simulator first.
+The config selects the path. ``runtime: brain`` loads the EnvHub bundle and
+starts one Isaac process per GPU. Any other runtime starts Isaac in this
+process and runs the checkpoint evaluator.
+
+The per-GPU process is ``evaluate.py --worker``. It is not a separate command.
 """
 
 import argparse
@@ -16,125 +20,133 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
-from isaaclab.app import AppLauncher
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def _apply_enable_cameras_from_config_yaml() -> None:
-    """If the eval YAML sets ``enable_cameras: true``, append ``--enable_cameras``.
-
-    AppLauncher is constructed before ``EvalConfig.from_yaml`` runs, so camera
-    enablement must be applied from the config file here (Isaac Sim requires
-    this flag when spawning cameras, e.g. Spot student depth).
-    """
-    pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--config", type=str, default=None)
-    pre_args, _ = pre.parse_known_args()
-    if not pre_args.config:
-        return
-    path = Path(pre_args.config)
+def _mode(argv: list[str]) -> str:
+    """Return ``worker``, ``brain``, or ``checkpoint`` before Isaac starts."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--config", default=None)
+    args, _unknown = parser.parse_known_args(argv)
+    if args.worker:
+        return "worker"
+    if not args.config:
+        return "checkpoint"
+    path = Path(args.config)
     if not path.is_file():
-        return
+        return "checkpoint"
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            data = yaml.safe_load(f) or {}
-        if data.get("enable_cameras") and "--enable_cameras" not in sys.argv:
-            sys.argv.append("--enable_cameras")
+        data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace")) or {}
     except Exception:
-        pass
+        return "checkpoint"
+    if data.get("runtime") == "brain":
+        return "brain"
+    return "checkpoint"
 
 
-_apply_enable_cameras_from_config_yaml()
+def _run_checkpoint() -> None:
+    """Start Isaac Sim and evaluate an in-process checkpoint."""
+    from isaaclab.app import AppLauncher
 
-parser = argparse.ArgumentParser(
-    description="Evaluate IsaacLab navigation environments",
-    formatter_class=argparse.RawDescriptionHelpFormatter,
-)
+    parser = argparse.ArgumentParser(
+        description="Evaluate IsaacLab navigation environments",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--config", type=str, required=True, help="Path to evaluation configuration YAML file")
+    parser.add_argument("--quiet", action="store_true", help="Suppress console output")
+    parser.add_argument(
+        "--result-path",
+        type=str,
+        default=None,
+        help="Absolute path for evaluation_result.json output (default: cwd)",
+    )
+    AppLauncher.add_app_launcher_args(parser)
+    args_cli = parser.parse_args()
+    # Lab 3 dropped the --enable_cameras flag. The launcher still reads the attribute.
+    if _config_enables_cameras(args_cli.config):
+        args_cli.enable_cameras = True
 
-parser.add_argument(
-    "--config",
-    type=str,
-    required=True,
-    help="Path to evaluation configuration YAML file",
-)
+    app_launcher = AppLauncher(args_cli)
+    simulation_app = app_launcher.app
 
-parser.add_argument(
-    "--quiet",
-    action="store_true",
-    help="Suppress console output",
-)
+    from eval_nav import EvalConfig, EvaluationReporter, NavigationEvaluator
 
-parser.add_argument(
-    "--result-path",
-    type=str,
-    default=None,
-    help="Absolute path for evaluation_result.json output (default: cwd)",
-)
-
-AppLauncher.add_app_launcher_args(parser)
-args_cli = parser.parse_args()
-
-app_launcher = AppLauncher(args_cli)
-simulation_app = app_launcher.app
-
-from eval_nav import EvalConfig, EvaluationReporter, NavigationEvaluator
-
-
-def main():
-    """Main entry point for evaluation CLI.
-    
-    Returns:
-        dict: Dictionary containing core evaluation results with keys:
-            - score: float (final evaluation score)
-            - log_dir: str (path to the run directory where results are saved)
-            - metadata: dict (evaluation metadata as JSON-serializable dict)
-            - summary: str (reporter's human-readable summary)
-    """
     try:
-        config = EvalConfig.from_yaml(args_cli.config)
-    except Exception as e:
-        print(f"Error loading config: {e}", file=sys.stderr)
+        result = _checkpoint_main(args_cli, EvalConfig, EvaluationReporter, NavigationEvaluator)
+        print(f"\n[INFO] Evaluation result: {result}")
+    except KeyboardInterrupt:
+        print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
+        sys.exit(130)
+    except Exception as exc:
+        import traceback
+
+        print(f"\n[ERROR] Evaluation failed: {exc}", file=sys.stderr)
+        traceback.print_exc()
         sys.exit(1)
-    
+    finally:
+        simulation_app.close()
+
+
+def _config_enables_cameras(config_path: str | None) -> bool:
+    """Return whether the eval YAML sets ``enable_cameras: true``."""
+    if not config_path:
+        return False
+    path = Path(config_path)
+    if not path.is_file():
+        return False
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace")) or {}
+    except Exception:
+        return False
+    return bool(data.get("enable_cameras"))
+
+
+def _checkpoint_main(args_cli, eval_config_cls, reporter_cls, evaluator_cls):
+    try:
+        config = eval_config_cls.from_yaml(args_cli.config)
+    except Exception as exc:
+        print(f"Error loading config: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     if not config.log_dir:
         raise ValueError("log_dir must be specified in config YAML")
-    
+
     log_dir = Path(config.log_dir).expanduser()
     if not log_dir.is_absolute():
         log_dir = (Path.cwd() / log_dir).resolve()
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = log_dir / f"eval_run_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    
+
     original_log_dir = config.log_dir
     config.log_dir = str(run_dir)
-    
-    evaluator = NavigationEvaluator(config, checkpoint_path=config.policy_path)
-    
+
+    evaluator = evaluator_cls(config, checkpoint_path=config.policy_path)
+
     if config.policy_path:
         print(f"[INFO] Policy checkpoint specified: {config.policy_path}")
         print("[INFO] Policy will be loaded when first environment is created")
     else:
         print("[INFO] No policy checkpoint specified, using random actions")
-    
+
     results = evaluator.evaluate(policy=None)
-    reporter = EvaluationReporter(results)
-    
+    reporter = reporter_cls(results)
+
     log_json_path = run_dir / "results.json"
     log_summary_path = run_dir / "summary.txt"
-    
+
     reporter.save_json(log_json_path)
     reporter.save_summary(log_summary_path)
-    
+
     config_path = run_dir / "config.yaml"
     config.log_dir = original_log_dir
-    # Persist config using UTF-8 encoding to support any unicode content
     with open(config_path, "w", encoding="utf-8", errors="replace") as f:
         yaml.dump(config.to_dict(), f, default_flow_style=False, allow_unicode=True)
-    
+
     if not args_cli.quiet:
         reporter.print_summary()
         print(f"\nResults saved to log directory: {run_dir}")
@@ -142,14 +154,14 @@ def main():
         print(f"  - Summary: {log_summary_path}")
         print(f"  - Config: {config_path}")
         print(f"  - NumPy state logs: {run_dir}/*.npy")
-    
+
     result = {
         "score": results.get("score", 0),
         "log_dir": str(run_dir),
         "metadata": results.get("metadata", {}),
         "summary": reporter.generate_summary(),
     }
-    
+
     if args_cli.result_path:
         result_json_path = Path(args_cli.result_path)
         result_json_path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,27 +172,29 @@ def main():
             json.dump(result, f, indent=2, ensure_ascii=False)
         if not args_cli.quiet:
             print(f"  - Result: {result_json_path}")
-    except IOError as e:
-        print(f"[WARNING] Failed to save result JSON: {e}", file=sys.stderr)
-    
+    except OSError as exc:
+        print(f"[WARNING] Failed to save result JSON: {exc}", file=sys.stderr)
+
     if results.get("status") != "SUCCESS":
         sys.exit(1)
-    
+
     return result
 
 
-if __name__ == "__main__":
-    try:
-        result = main()
-        print(f"\n[INFO] Evaluation result: {result}")
-    except KeyboardInterrupt:
-        print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
-        sys.exit(130)
-    except Exception as e:
-        import traceback
-        print(f"\n[ERROR] Evaluation failed: {e}", file=sys.stderr)
-        traceback.print_exc()
-        sys.exit(1)
-    finally:
-        simulation_app.close()
+def main() -> None:
+    mode = _mode(sys.argv[1:])
+    if mode == "worker":
+        from eval_nav.benchmark.worker import main as run_worker
 
+        run_worker()
+        return
+    if mode == "brain":
+        from eval_nav.benchmark.orchestrate import main as run_brain
+
+        run_brain()
+        return
+    _run_checkpoint()
+
+
+if __name__ == "__main__":
+    main()

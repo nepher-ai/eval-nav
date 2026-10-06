@@ -24,6 +24,7 @@ _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
+    "manipulation.multitask": ["v1"],
 }
 
 
@@ -67,6 +68,8 @@ class EvalConfig:
     +---------------------------+----------+-----------------------------------------+
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
+    +---------------------------+----------+-----------------------------------------+
+    | manipulation.multitask    | v1       | mean over tasks of success_rate         |
     +---------------------------+----------+-----------------------------------------+
     """
 
@@ -143,8 +146,8 @@ class EvalConfig:
     """Nepher envhub category: ``'navigation'`` or ``'manipulation'``."""
 
     enable_cameras: bool = False
-    """When True, ``scripts/evaluate.py`` passes ``--enable_cameras`` to Isaac Sim.
-    Required for environments that spawn depth cameras (e.g. Spot student)."""
+    """When True, the Isaac process enables camera rendering.
+    Required for environments that spawn cameras."""
 
     # -----------------------------------------------------------------------
     # Execution
@@ -174,6 +177,18 @@ class EvalConfig:
     workflow: str = "rsl_rl"
     """RL framework used to load the checkpoint: ``"rsl_rl"`` (default) or
     ``"skrl"``. Must match how the task package was trained."""
+
+    runtime: str = "in_process"
+    """``in_process`` keeps the checkpoint path. ``brain`` talks to a brain socket."""
+
+    brain: dict[str, Any] | None = None
+    """Socket directory, step timeout, and open-loop horizon. Required for ``runtime: brain``."""
+
+    benchmark_env_id: str | None = None
+    """EnvHub id whose bundle contains ``benchmark.yaml``."""
+
+    verify_canary: bool = False
+    """When true, shard 0 is run twice and the trajectory-hash comparison is stored."""
 
     # -----------------------------------------------------------------------
     # Class methods
@@ -275,11 +290,26 @@ class EvalConfig:
         if self.timeout_seconds is not None and self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be > 0 if specified")
 
-        if self.workflow not in ("rsl_rl", "skrl"):
+        if self.runtime not in ("in_process", "brain"):
+            raise ValueError(f"Unsupported runtime: {self.runtime!r}. Supported: ('in_process', 'brain')")
+
+        if self.runtime == "in_process" and self.workflow not in ("rsl_rl", "skrl"):
             raise ValueError(
                 f"Unsupported workflow: {self.workflow!r}. "
                 "Supported: ('rsl_rl', 'skrl')"
             )
+
+        if self.runtime == "brain":
+            brain = self.brain or {}
+            for key in ("socket_dir", "step_timeout_s", "open_loop_horizon"):
+                if key not in brain:
+                    raise ValueError(f"brain.{key} is required when runtime is 'brain'")
+            if float(brain["step_timeout_s"]) <= 0:
+                raise ValueError("brain.step_timeout_s must be > 0")
+            if int(brain["open_loop_horizon"]) < 1:
+                raise ValueError("brain.open_loop_horizon must be >= 1")
+            if not self.benchmark_env_id:
+                raise ValueError("benchmark_env_id is required when runtime is 'brain'")
 
     # -----------------------------------------------------------------------
     # Serialization
@@ -306,6 +336,10 @@ class EvalConfig:
             "enable_logging": self.enable_logging,
             "policy_path": self.policy_path,
             "workflow": self.workflow,
+            "runtime": self.runtime,
+            "brain": self.brain,
+            "benchmark_env_id": self.benchmark_env_id,
+            "verify_canary": self.verify_canary,
         }
 
     # -----------------------------------------------------------------------

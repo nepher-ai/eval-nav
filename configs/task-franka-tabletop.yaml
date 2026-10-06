@@ -1,0 +1,36 @@
+# Franka tabletop benchmark. The phase bundle is hidden; this file only names it.
+# Public play ids use the same task module with seeds shipped in the package.
+
+task_name: "Nepher-FrankaTabletop-Envhub-Play-v0"
+task_module: "franka_tabletop.tasks"
+task_type: "manipulation.multitask"
+scoring_version: "v1"
+category: "manipulation"
+runtime: brain
+benchmark_env_id: "tabletop-phase1-v1"
+enable_cameras: true
+verify_canary: true
+
+env_scenes:
+  - env_id: "tabletop-phase1-v1"
+    scene: 0
+
+env_config:
+  cfg_entry: "franka_tabletop.env_cfg:build_cfg"
+
+seeds:
+  - 1
+
+num_envs: 4
+num_episodes: 1
+max_episode_steps: 400
+max_episode_time_s: 40.0
+
+log_dir: "logs/franka-tabletop"
+enable_logging: false
+
+brain:
+  # socket_dir: "/run/brain" # for linux
+  socket_dir: "C:/brain" # for windows
+  step_timeout_s: 60
+  open_loop_horizon: 8

@@ -34,6 +34,9 @@ Manipulation
     - v1 : task success (70%) + time efficiency (30%)  [deprecated: additive, SR not dominant]
     - v2 : success_rate × (0.75 + 0.25 × time_efficiency)  [success rate is first-class multiplier]
 
+``manipulation.multitask`` — several manipulation families in one benchmark
+    - v1 : mean over tasks of success_rate(task)
+
 Usage
 -----
     from eval_nav.core.scorers import get_scorer
@@ -46,6 +49,7 @@ Usage
 from __future__ import annotations
 
 from .base import BaseScorer
+from .manipulation.multitask import MultitaskScorer
 from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
 from .navigation.go2_maze import Go2MazeScorer
 from .navigation.humanoid import HumanoidRaceScorer
@@ -66,6 +70,7 @@ __all__ = [
     "SpotWaypointScorer",
     "SpotGoalScorerV3",
     "SpotGoalScorerV4",
+    "MultitaskScorer",
     "PickPlaceScorer",
     "PickPlaceScorerV2",
     "REGISTRY",
@@ -89,6 +94,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
     ("navigation.spot", "v4"): SpotGoalScorerV4,
     ("manipulation.pick_place", "v1"): PickPlaceScorer,
     ("manipulation.pick_place", "v2"): PickPlaceScorerV2,
+    ("manipulation.multitask", "v1"): MultitaskScorer,
 }
 
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
@@ -98,6 +104,7 @@ VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
+    "manipulation.multitask": ["v1"],
 }
 
 SUPPORTED_TASK_TYPES: tuple[str, ...] = tuple(VALID_VERSIONS_PER_TASK_TYPE.keys())
