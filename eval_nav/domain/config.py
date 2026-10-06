@@ -110,8 +110,9 @@ class EvalConfig:
     """Python module to import for environment registration."""
 
     env_scenes: list[dict[str, Any]] = field(default_factory=list)
-    """Environment-scene pairs to evaluate.
-    Each dict must have ``'env_id'`` and ``'scene'`` keys."""
+    """Environment-scene pairs for an in-process checkpoint run.
+    Each dict must have ``'env_id'`` and ``'scene'`` keys.
+    Brain mode uses ``benchmark_env_id`` instead."""
 
     # -----------------------------------------------------------------------
     # Reproducibility
@@ -242,8 +243,6 @@ class EvalConfig:
         if not self.task_name:
             raise ValueError("task_name cannot be empty")
 
-        if not self.env_scenes:
-            raise ValueError("env_scenes list cannot be empty")
         for i, env_scene in enumerate(self.env_scenes):
             if not isinstance(env_scene, dict):
                 raise ValueError(f"env_scenes[{i}] must be a dictionary")
@@ -292,6 +291,9 @@ class EvalConfig:
 
         if self.runtime not in ("in_process", "brain"):
             raise ValueError(f"Unsupported runtime: {self.runtime!r}. Supported: ('in_process', 'brain')")
+
+        if self.runtime != "brain" and not self.env_scenes:
+            raise ValueError("env_scenes list cannot be empty")
 
         if self.runtime == "in_process" and self.workflow not in ("rsl_rl", "skrl"):
             raise ValueError(

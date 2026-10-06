@@ -7,13 +7,9 @@ task_type: "manipulation.multitask"
 scoring_version: "v1"
 category: "manipulation"
 runtime: brain
-benchmark_env_id: "tabletop-phase1-v1"
+benchmark_env_id: "tabletop-phase1-v0"
 enable_cameras: true
 verify_canary: true
-
-env_scenes:
-  - env_id: "tabletop-phase1-v1"
-    scene: 0
 
 env_config:
   cfg_entry: "franka_tabletop.env_cfg:build_cfg"

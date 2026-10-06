@@ -106,6 +106,23 @@ def test_brain_config_requires_brain_fields(tmp_path: Path):
     else:
         raise AssertionError("brain config without fields should fail validation")
 
+    path.write_text(
+        "task_name: Nepher-FrankaTabletop-Envhub-Play-v0\n"
+        "task_type: manipulation.multitask\n"
+        "scoring_version: v1\n"
+        "category: manipulation\n"
+        "runtime: brain\n"
+        "num_envs: 4\n"
+        "seeds: [1]\n"
+        "benchmark_env_id: tabletop-phase1-v0\n"
+        "brain:\n"
+        "  socket_dir: /run/brain\n"
+        "  step_timeout_s: 60\n"
+        "  open_loop_horizon: 8\n",
+        encoding="utf-8",
+    )
+    EvalConfig.from_yaml(path).validate()
+
 
 def test_lockstep_hashes_match_across_runs():
     shard = make_shards(expand(manifest_from_dict(MANIFEST)), 2)[0]
