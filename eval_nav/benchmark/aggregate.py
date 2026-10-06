@@ -62,6 +62,9 @@ def write_outputs(
     )
     result = {
         "score": score,
+        "log_version": 2,
+        "tasks": report.get("tasks", {}),
+        "episodes": report.get("episodes", []),
         "summary": summary,
         "metadata": {
             **metadata,
@@ -111,14 +114,17 @@ def _merge_episodes(records: list[dict[str, Any]], rows: list[dict[str, Any]]) -
                 "variant": record.get("variant"),
                 "episode_index": record.get("episode_index"),
                 "seed": record.get("seed"),
+                "instruction": record.get("instruction"),
                 "success": row.get("success", record.get("success")),
                 "failed": record.get("failed"),
                 "timeout": record.get("timeout"),
                 "steps": row.get("steps", record.get("steps")),
+                "elapsed_s": record.get("elapsed_s"),
                 "completion_time_s": row.get("completion_time_s"),
                 "sparc": row.get("sparc"),
                 "speed": row.get("speed"),
                 "smoothness": row.get("smoothness"),
+                "final_positions_m": record.get("final_positions_m"),
                 "trajectory_hash": record.get("trajectory_hash"),
             }
         )
@@ -166,10 +172,12 @@ def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) ->
                     f"variant={row.get('variant')}",
                     f"success={row.get('success')}",
                     f"steps={row.get('steps')}",
+                    f"elapsed_s={_num(row.get('elapsed_s'))}",
                     f"time_s={_num(row.get('completion_time_s'))}",
                     f"sparc={_num(row.get('sparc'))}",
                     f"speed={_num(row.get('speed'))}",
                     f"smoothness={_num(row.get('smoothness'))}",
+                    f"instruction={row.get('instruction')}",
                 ]
             )
         )

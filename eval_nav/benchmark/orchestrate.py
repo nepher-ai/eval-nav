@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.result_path:
         target = Path(args.result_path)
         target.write_text((output_dir / "evaluation_result.json").read_text(encoding="utf-8"), encoding="utf-8")
+    print((output_dir / "summary.txt").read_text(encoding="utf-8"))
     print((output_dir / "evaluation_result.json").read_text(encoding="utf-8"))
 
 

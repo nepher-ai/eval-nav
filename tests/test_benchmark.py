@@ -175,6 +175,7 @@ def test_evaluation_summary_lists_task_terms(tmp_path: Path):
     assert "time_s=8.000000" in text
     assert "smoothness=1.000000" in text
     payload = (tmp_path / "evaluation_result.json").read_text(encoding="utf-8")
+    assert '"log_version": 2' in payload
     assert '"tasks"' in payload
     assert '"episodes"' in payload
 
