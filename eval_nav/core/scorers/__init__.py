@@ -36,7 +36,8 @@ Manipulation
 
 ``manipulation.multitask`` — several manipulation families in one benchmark
     - v1 : mean over tasks of success_rate × (0.30 + 0.70 × quality);
-           quality = 0.70 × speed + 0.30 × hand-path smoothness
+           quality = 0.70 × speed + 0.30 × hand-path smoothness;
+           a success without a SPARC is not counted
 
 Usage
 -----

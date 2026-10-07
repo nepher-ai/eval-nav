@@ -17,7 +17,8 @@ multiplies speed and hand-path smoothness, so a miss scores 0.
 ``T`` is the simulated time [s] at which the episode first succeeds. ``T_budget``
 is ``max_episode_time_s`` [s]. ``S`` is the SPARC of the hand speed up to that
 moment. ``S_smooth`` and ``S_jerky`` are fixed bounds, not fitted to the submission.
-Quality is the mean over successful episodes only.
+Quality is the mean over successful episodes that have a hand-path SPARC. A success
+with no SPARC is not counted: it is not a measured motion.
 """
 
 from __future__ import annotations
@@ -101,7 +102,8 @@ class MultitaskScorer(BaseScorer):
             "scoring_version": self.VERSION,
             "formula": (
                 "task_score = success_rate * (0.30 + 0.70 * quality); "
-                "quality = 0.70 * speed + 0.30 * smoothness"
+                "quality = 0.70 * speed + 0.30 * smoothness; "
+                "a success without a SPARC is not counted"
             ),
             "time_budget_s": self.time_budget_s,
             "sparc_smooth": S_SMOOTH,
@@ -114,27 +116,27 @@ class MultitaskScorer(BaseScorer):
 
 
 def _episode_terms(episode: EpisodeMetrics, budget: float | None, *, use_steps: bool) -> tuple[float | None, float | None]:
-    """Speed and smoothness for one episode. Failures stay out of the quality mean."""
+    """Speed and smoothness for one episode. Failures and successes without a SPARC stay out."""
     if not episode.success or budget is None or budget <= 0:
         return None, None
     elapsed = float(episode.steps) if use_steps else episode.completion_time
     if elapsed is None:
         return None, None
-    speed = float(np.clip(1.0 - float(elapsed) / budget, 0.0, 1.0))
     sparc = episode.extra.get("sparc")
     if sparc is None:
-        smoothness = 0.0
-    else:
-        span = S_JERKY - S_SMOOTH
-        smoothness = float(np.clip((S_JERKY - float(sparc)) / span, 0.0, 1.0))
+        return None, None
+    speed = float(np.clip(1.0 - float(elapsed) / budget, 0.0, 1.0))
+    span = S_JERKY - S_SMOOTH
+    smoothness = float(np.clip((S_JERKY - float(sparc)) / span, 0.0, 1.0))
     return speed, smoothness
 
 
 def _task_report(group: list[dict[str, Any]]) -> dict[str, Any]:
-    successes = [row for row in group if row["success"]]
-    success_rate = len(successes) / len(group)
-    speeds = [row["speed"] for row in successes if row["speed"] is not None]
-    smooth = [row["smoothness"] for row in successes if row["smoothness"] is not None]
+    measured = [row for row in group if row["success"] and row["speed"] is not None]
+    unmeasured = sum(1 for row in group if row["success"] and row["speed"] is None)
+    success_rate = len(measured) / len(group)
+    speeds = [row["speed"] for row in measured]
+    smooth = [row["smoothness"] for row in measured]
     speed = float(np.mean(speeds)) if speeds else None
     smoothness = float(np.mean(smooth)) if smooth else None
     if speed is None or smoothness is None:
@@ -145,7 +147,8 @@ def _task_report(group: list[dict[str, Any]]) -> dict[str, Any]:
         task_score = success_rate * (_W_SUCCESS + _W_QUALITY * quality)
     return {
         "episodes": len(group),
-        "successes": len(successes),
+        "successes": len(measured),
+        "unmeasured": unmeasured,
         "success_rate": success_rate,
         "speed": speed,
         "smoothness": smoothness,

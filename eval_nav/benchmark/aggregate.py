@@ -153,6 +153,7 @@ def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) ->
                 f"task {task_id}:",
                 f"  episodes: {task.get('episodes')}",
                 f"  successes: {task.get('successes')}",
+                f"  unmeasured: {task.get('unmeasured', 0)}",
                 f"  success_rate: {_num(task.get('success_rate'))}",
                 f"  speed: {_num(task.get('speed'))}",
                 f"  smoothness: {_num(task.get('smoothness'))}",

@@ -125,6 +125,28 @@ def test_multitask_score_mixes_speed_and_smoothness():
     assert abs(score - 0.402) < 1e-9
 
 
+def test_unmeasured_success_is_not_scored():
+    episodes = [
+        EpisodeMetrics(
+            0,
+            "a",
+            1,
+            True,
+            1,
+            False,
+            completion_time=0.04,
+            extra={"task_id": "place_relative", "sparc": None},
+        )
+    ]
+    scorer = get_scorer("manipulation.multitask", "v1")
+    score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 500, episodes, max_episode_time_s=20.0)
+    task = scorer.tasks["place_relative"]
+    assert task["speed"] is None
+    assert task["successes"] == 0
+    assert task["unmeasured"] == 1
+    assert score == 0.0
+
+
 def test_multitask_clips_a_late_jerky_success():
     # Finishing at the time budget with the jerky SPARC bound: speed 0, smoothness 0.
     # task_score = 1 * 0.30.
