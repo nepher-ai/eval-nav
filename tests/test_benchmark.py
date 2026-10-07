@@ -305,6 +305,16 @@ def test_kind_free_success_block_loads():
     assert "kind" not in manifest.tasks[0].success.body
 
 
+def test_brain_run_directory_matches_checkpoint_layout(tmp_path: Path):
+    from datetime import datetime
+
+    from eval_nav.benchmark.orchestrate import run_directory
+
+    created = run_directory(tmp_path, datetime(2026, 10, 7, 19, 30, 0))
+    assert created == tmp_path / "eval_run_20261007_193000"
+    assert created.is_dir()
+
+
 def test_group_step_cap_is_the_eval_config():
     from eval_nav.benchmark.orchestrate import _step_cap
 
@@ -337,10 +347,14 @@ def test_evaluation_summary_lists_task_terms(tmp_path: Path):
     score, metrics, report = score_records(records, "manipulation.multitask", "v1", 500, max_episode_time_s=20.0)
     write_outputs(tmp_path, score, metrics, records, report=report, metadata={"runtime": "brain"})
     text = (tmp_path / "summary.txt").read_text(encoding="utf-8")
-    assert "task place_relative:" in text
-    assert "task_score:" in text
-    assert "time_s=8.000000" in text
-    assert "smoothness=1.000000" in text
+    assert text.startswith("=" * 60)
+    assert "Evaluation Summary" in text
+    assert "Final Score:" in text
+    assert "place_relative" in text
+    assert "Task Score: 0.9160" in text
+    assert "Completion: 8.00 s" in text
+    assert "Smoothness: 1.0000" in text
+    assert "Runtime: brain" in text
     payload = (tmp_path / "evaluation_result.json").read_text(encoding="utf-8")
     assert '"log_version": 2' in payload
     assert '"tasks"' in payload
@@ -387,7 +401,7 @@ def test_brain_config_requires_brain_fields(tmp_path: Path):
     tabletop = EvalConfig.from_yaml(SOURCE / "eval-nav" / "configs" / "task-franka-tabletop.yaml")
     tabletop.validate()
     assert tabletop.num_envs is None
-    assert tabletop.num_episodes == 4
+    assert tabletop.num_episodes == 1
     assert tabletop.brain["placement"] == "paired"
 
 

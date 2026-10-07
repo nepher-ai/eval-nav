@@ -54,7 +54,7 @@ def write_outputs(
     """Write results.json, summary.txt, and evaluation_result.json."""
     output_dir.mkdir(parents=True, exist_ok=True)
     ordered = sorted(records, key=lambda record: record["job_id"])
-    summary = _summary(score, metrics, report)
+    summary = _summary(score, metrics, report, metadata)
     (output_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
     (output_dir / "results.json").write_text(
         json.dumps({"records": ordered, "metrics": metrics.to_dict(), "report": report}, indent=2),
@@ -140,67 +140,168 @@ def _merge_episodes(records: list[dict[str, Any]], rows: list[dict[str, Any]]) -
     return merged
 
 
-def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) -> str:
-    """Human-readable report printed at the end of a brain evaluation."""
+def _summary(
+    score: float,
+    metrics: AggregateMetrics,
+    report: dict[str, Any],
+    metadata: dict[str, Any],
+) -> str:
+    """Sectioned report in the same shape as the checkpoint evaluator summary."""
     lines = [
-        f"score: {_num(score)}",
-        f"formula: {report.get('formula', '')}",
-        f"episodes: {metrics.total_episodes}",
-        f"successes: {metrics.successful_episodes}",
-        f"failures: {metrics.failed_episodes}",
-        f"timeouts: {metrics.timeout_episodes}",
-        f"success_rate: {_num(metrics.success_rate)}",
-        f"time_budget_s: {_num(report.get('time_budget_s'))}",
-        f"sparc_smooth: {_num(report.get('sparc_smooth'))}",
-        f"sparc_jerky: {_num(report.get('sparc_jerky'))}",
-        "weights: progress 0.70, finish 0.30, speed 0.70, smoothness 0.30",
-        f"pooled_score: {_num(report.get('pooled_score'))}",
-        f"mean_path_length_m: {_num(report.get('mean_path_length_m'))}",
-        f"mean_hand_speed_mps: {_num(report.get('mean_hand_speed_mps'))}",
-        f"mean_sparc: {_num(report.get('mean_sparc'))}",
+        _RULE,
+        "Evaluation Summary",
+        _RULE,
+        "",
+        "Status: SUCCESS",
+        f"Final Score: {float(score):.4f} (normalized [0, 1])",
+        "",
+        "Aggregate Metrics:",
+        _DASH,
+        f"  Total Episodes: {metrics.total_episodes}",
+        f"  Successful: {metrics.successful_episodes}",
+        f"  Failed: {metrics.failed_episodes}",
+        f"  Timeouts: {metrics.timeout_episodes}",
+        f"  Success Rate: {float(metrics.success_rate):.2%}",
+        f"  Mean Steps: {metrics.mean_steps:.2f}",
+        f"  Std Steps: {metrics.std_steps:.2f}",
     ]
+    if metrics.mean_completion_time is not None:
+        lines.append(f"  Mean Completion Time: {metrics.mean_completion_time:.2f} s")
+        if metrics.std_completion_time is not None:
+            lines.append(f"  Std Completion Time: {metrics.std_completion_time:.2f} s")
+    lines.extend(
+        [
+            f"  Time Budget: {_quantity(report.get('time_budget_s'), 's')}",
+            f"  Pooled Score: {_decimal(report.get('pooled_score'))}",
+            f"  Mean Path Length: {_quantity(report.get('mean_path_length_m'), 'm')}",
+            f"  Mean Hand Speed: {_quantity(report.get('mean_hand_speed_mps'), 'm/s')}",
+            f"  Mean SPARC: {_decimal(report.get('mean_sparc'))}",
+            f"  Weights: {_weights(report)}",
+            f"  Formula: {report.get('formula') or 'n/a'}",
+            "",
+        ]
+    )
     tasks = report.get("tasks") or {}
-    for task_id, task in sorted(tasks.items()):
-        lines.extend(
-            [
-                f"task {task_id}:",
-                f"  episodes: {task.get('episodes')}",
-                f"  successes: {task.get('successes')}",
-                f"  unmeasured: {task.get('unmeasured', 0)}",
-                f"  success_rate: {_num(task.get('success_rate'))}",
-                f"  progress: {_num(task.get('progress'))}",
-                f"  speed: {_num(task.get('speed'))}",
-                f"  smoothness: {_num(task.get('smoothness'))}",
-                f"  quality: {_num(task.get('quality'))}",
-                f"  task_score: {_num(task.get('task_score'))}",
-            ]
-        )
-    lines.append("episodes:")
-    for row in report.get("episodes") or []:
-        lines.append(
-            "  "
-            + " ".join(
+    if tasks:
+        lines.extend(["Tasks:", _DASH])
+        for task_id, task in sorted(tasks.items()):
+            lines.extend(
                 [
-                    str(row.get("job_id")),
-                    f"task={row.get('task_id')}",
-                    f"scene={row.get('scene_id')}",
-                    f"variant={row.get('variant')}",
-                    f"success={row.get('success')}",
-                    f"steps={row.get('steps')}",
-                    f"elapsed_s={_num(row.get('elapsed_s'))}",
-                    f"time_s={_num(row.get('completion_time_s'))}",
-                    f"progress={_num(row.get('progress'))}",
-                    f"sparc={_num(row.get('sparc'))}",
-                    f"speed={_num(row.get('speed'))}",
-                    f"smoothness={_num(row.get('smoothness'))}",
-                    f"instruction={row.get('instruction')}",
+                    f"  {task_id}",
+                    f"    Episodes: {task.get('episodes')}",
+                    f"    Successes: {task.get('successes')}",
+                    f"    Unmeasured: {task.get('unmeasured', 0)}",
+                    f"    Success Rate: {_percent(task.get('success_rate'))}",
+                    f"    Progress: {_decimal(task.get('progress'))}",
+                    f"    Speed: {_decimal(task.get('speed'))}",
+                    f"    Smoothness: {_decimal(task.get('smoothness'))}",
+                    f"    Quality: {_decimal(task.get('quality'))}",
+                    f"    Task Score: {_decimal(task.get('task_score'))}",
+                    "",
                 ]
             )
-        )
+    episodes = report.get("episodes") or []
+    if episodes:
+        lines.extend(["Episodes:", _DASH])
+        for row in episodes:
+            lines.extend(_episode_lines(row))
+            lines.append("")
+    if metadata:
+        lines.extend(["Evaluation Metadata:", _DASH])
+        for key, label in _METADATA_FIELDS:
+            if key not in metadata or metadata[key] is None:
+                continue
+            value = metadata[key]
+            if key == "max_episode_time_s":
+                value = f"{float(value):.2f} s"
+            lines.append(f"  {label}: {value}")
+        lines.append("")
+    lines.extend(
+        [
+            "Interpretation:",
+            _DASH,
+            f"  {_interpretation(float(score))}",
+            "",
+            _RULE,
+        ]
+    )
     return "\n".join(lines)
 
 
-def _num(value: Any) -> str:
+_RULE = "=" * 60
+_DASH = "-" * 60
+_METADATA_FIELDS = (
+    ("runtime", "Runtime"),
+    ("task_name", "Task"),
+    ("benchmark_env_id", "Benchmark"),
+    ("scoring_version", "Scoring Version"),
+    ("version", "Bundle Version"),
+    ("num_episodes", "Episodes per Task"),
+    ("max_episode_steps", "Max Steps"),
+    ("max_episode_time_s", "Max Episode Time"),
+)
+
+
+def _episode_lines(row: dict[str, Any]) -> list[str]:
+    """One episode as labeled lines, not a single packed record."""
+    return [
+        f"  {row.get('job_id')}",
+        f"    Task: {row.get('task_id')}",
+        f"    Scene: {row.get('scene_id')}",
+        f"    Variant: {row.get('variant')}",
+        f"    Seed: {row.get('seed')}",
+        f"    Instruction: {row.get('instruction') or 'n/a'}",
+        f"    Success: {_yes_no(row.get('success'))}",
+        f"    Failed: {_yes_no(row.get('failed'))}",
+        f"    Timeout: {_yes_no(row.get('timeout'))}",
+        f"    Steps: {row.get('steps')}",
+        f"    Elapsed: {_quantity(row.get('elapsed_s'), 's', digits=2)}",
+        f"    Completion: {_quantity(row.get('completion_time_s'), 's', digits=2)}",
+        f"    Progress: {_decimal(row.get('progress'))}",
+        f"    SPARC: {_decimal(row.get('sparc'))}",
+        f"    Speed: {_decimal(row.get('speed'))}",
+        f"    Smoothness: {_decimal(row.get('smoothness'))}",
+        f"    Path Length: {_quantity(row.get('path_length_m'), 'm')}",
+        f"    Hand Speed: {_quantity(row.get('mean_hand_speed_mps'), 'm/s')}",
+    ]
+
+
+def _interpretation(score: float) -> str:
+    if score >= 0.8:
+        return "Excellent performance. High task scores and clean finishes."
+    if score >= 0.6:
+        return "Good performance. Room for improvement in success rate or speed."
+    if score >= 0.4:
+        return "Moderate performance. Several tasks are unfinished."
+    return "Poor performance. Most tasks did not finish."
+
+
+def _weights(report: dict[str, Any]) -> str:
+    weights = report.get("weights") or {}
+    if not weights:
+        return "n/a"
+    return ", ".join(f"{name} {float(value):.2f}" for name, value in weights.items())
+
+
+def _decimal(value: Any, digits: int = 4) -> str:
     if value is None:
         return "n/a"
-    return f"{float(value):.6f}"
+    return f"{float(value):.{digits}f}"
+
+
+def _quantity(value: Any, unit: str, digits: int = 4) -> str:
+    if value is None:
+        return "n/a"
+    return f"{float(value):.{digits}f} {unit}"
+
+
+def _percent(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    return f"{float(value):.2%}"
+
+
+def _yes_no(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    return "Yes" if bool(value) else "No"

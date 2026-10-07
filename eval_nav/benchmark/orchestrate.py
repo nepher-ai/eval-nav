@@ -17,7 +17,10 @@ import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
+
+import yaml
 
 from eval_nav.benchmark.aggregate import score_records, write_outputs
 from eval_nav.benchmark.expand import expand, make_shards
@@ -39,7 +42,7 @@ def main(argv: list[str] | None = None) -> None:
     config.validate()
     manifest_path = Path(args.manifest) if args.manifest else _manifest_from_envhub(config)
     manifest = load_manifest(manifest_path)
-    output_dir = Path(args.output_dir or config.log_dir or "logs/eval")
+    output_dir = _output_dir(args.output_dir, config.log_dir)
     records = run_workers(config, manifest, output_dir)
     max_steps = config.max_episode_steps or 1
     score, metrics, report = score_records(
@@ -49,19 +52,62 @@ def main(argv: list[str] | None = None) -> None:
         max_steps,
         max_episode_time_s=config.max_episode_time_s,
     )
+    metadata = {
+        "runtime": config.runtime,
+        "task_name": config.task_name,
+        "benchmark_env_id": config.benchmark_env_id,
+        "scoring_version": config.scoring_version,
+        "version": manifest.version,
+        "num_episodes": config.num_episodes,
+        "max_episode_steps": config.max_episode_steps,
+        "max_episode_time_s": config.max_episode_time_s,
+    }
     write_outputs(
         output_dir,
         score,
         metrics,
         records,
         report=report,
-        metadata={"runtime": config.runtime, "version": manifest.version},
+        metadata=metadata,
     )
+    _write_config(output_dir, config)
+    print((output_dir / "summary.txt").read_text(encoding="utf-8"), end="")
+    print(f"\nResults saved to log directory: {output_dir}")
+    print(f"  - JSON: {output_dir / 'results.json'}")
+    print(f"  - Summary: {output_dir / 'summary.txt'}")
+    print(f"  - Config: {output_dir / 'config.yaml'}")
+    print(f"  - Result: {output_dir / 'evaluation_result.json'}")
+    for path in sorted(output_dir.glob("gpu*.jsonl")):
+        print(f"  - Records: {path}")
     if args.result_path:
         target = Path(args.result_path)
         target.write_text((output_dir / "evaluation_result.json").read_text(encoding="utf-8"), encoding="utf-8")
-    print((output_dir / "summary.txt").read_text(encoding="utf-8"))
-    print((output_dir / "evaluation_result.json").read_text(encoding="utf-8"))
+        print(f"  - Result copy: {target}")
+
+
+def run_directory(log_dir: Path, timestamp: datetime | None = None) -> Path:
+    """Create ``log_dir/eval_run_YYYYMMDD_HHMMSS``, matching the checkpoint evaluator."""
+    stamp = (timestamp or datetime.now()).strftime("%Y%m%d_%H%M%S")
+    path = Path(log_dir) / f"eval_run_{stamp}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _output_dir(explicit: str | None, log_dir: str | None) -> Path:
+    """Use an explicit directory as given. Otherwise open a new run folder under ``log_dir``."""
+    base = Path(explicit or log_dir or "logs/eval")
+    if not base.is_absolute():
+        base = (Path.cwd() / base).resolve()
+    if explicit:
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    return run_directory(base)
+
+
+def _write_config(output_dir: Path, config: EvalConfig) -> None:
+    """Save the eval config next to the report. ``log_dir`` stays the parent, not the run folder."""
+    with open(output_dir / "config.yaml", "w", encoding="utf-8", errors="replace") as handle:
+        yaml.dump(config.to_dict(), handle, default_flow_style=False, allow_unicode=True)
 
 
 def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
