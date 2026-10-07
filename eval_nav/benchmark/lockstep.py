@@ -94,11 +94,14 @@ def run_shard(
     control_dt_s = float(getattr(env, "step_dt", 0.04) or 0.04)
     paths = env.hand_positions() if hasattr(env, "hand_positions") else None
     texts = list(env.instructions()) if hasattr(env, "instructions") else []
+    progress = np.asarray(env.task_progress(), dtype=np.float64) if hasattr(env, "task_progress") else None
     records = []
     for index, job in enumerate(shard.jobs):
         done = bool(success[index])
         taken = int(steps[index])
         path = None if paths is None or index >= len(paths) else paths[index]
+        elapsed = taken * control_dt_s
+        length = _path_length(path)
         records.append(
             {
                 "job_id": job.job_id,
@@ -113,14 +116,24 @@ def run_shard(
                 "steps": taken,
                 "timeout": not bool(frozen[index]),
                 "control_dt_s": control_dt_s,
-                "elapsed_s": taken * control_dt_s,
-                "completion_time_s": taken * control_dt_s if done else None,
+                "elapsed_s": elapsed,
+                "completion_time_s": elapsed if done else None,
+                "progress": 1.0 if done and progress is None else (0.0 if progress is None else float(progress[index])),
+                "path_length_m": length,
+                "mean_hand_speed_mps": length / elapsed if elapsed > 0.0 else 0.0,
                 "sparc": None if path is None else sparc_from_positions(path, control_dt_s),
                 "final_positions_m": np.round(np.asarray(poses[index], dtype=np.float64), 4).tolist(),
                 "trajectory_hash": trajectory_hash([row[index] for row in logged], poses[index]),
             }
         )
     return records
+
+
+def _path_length(path: np.ndarray | None) -> float:
+    """Length [m] of a hand path. An empty path has length 0."""
+    if path is None or len(path) < 2:
+        return 0.0
+    return float(np.linalg.norm(np.diff(np.asarray(path, dtype=np.float64), axis=0), axis=1).sum())
 
 
 def trajectory_hash(actions: list[np.ndarray], final_pose: np.ndarray) -> str:

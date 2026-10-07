@@ -193,6 +193,8 @@ class EnvironmentManager:
         
         cfg = cfg_class(**env_config)
         
+        if self.config.num_envs is None:
+            raise ValueError("num_envs is required for an in-process evaluation")
         if hasattr(cfg, "scene") and hasattr(cfg.scene, "num_envs"):
             cfg.scene.num_envs = self.config.num_envs
         

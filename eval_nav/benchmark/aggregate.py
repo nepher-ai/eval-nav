@@ -98,7 +98,13 @@ def _episode(index: int, record: dict[str, Any]) -> EpisodeMetrics:
         steps=steps,
         timeout=bool(record.get("timeout", False)),
         completion_time=None if completion is None else float(completion),
-        extra={"task_id": record.get("task_id", "default"), "sparc": record.get("sparc")},
+        extra={
+            "task_id": record.get("task_id", "default"),
+            "sparc": record.get("sparc"),
+            "progress": record.get("progress", 1.0 if success else 0.0),
+            "path_length_m": record.get("path_length_m"),
+            "mean_hand_speed_mps": record.get("mean_hand_speed_mps"),
+        },
     )
 
 
@@ -121,9 +127,12 @@ def _merge_episodes(records: list[dict[str, Any]], rows: list[dict[str, Any]]) -
                 "steps": row.get("steps", record.get("steps")),
                 "elapsed_s": record.get("elapsed_s"),
                 "completion_time_s": row.get("completion_time_s"),
+                "progress": row.get("progress"),
                 "sparc": row.get("sparc"),
                 "speed": row.get("speed"),
                 "smoothness": row.get("smoothness"),
+                "path_length_m": row.get("path_length_m"),
+                "mean_hand_speed_mps": row.get("mean_hand_speed_mps"),
                 "final_positions_m": record.get("final_positions_m"),
                 "trajectory_hash": record.get("trajectory_hash"),
             }
@@ -144,7 +153,11 @@ def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) ->
         f"time_budget_s: {_num(report.get('time_budget_s'))}",
         f"sparc_smooth: {_num(report.get('sparc_smooth'))}",
         f"sparc_jerky: {_num(report.get('sparc_jerky'))}",
-        "weights: speed 0.70, smoothness 0.30, success_floor 0.30, quality 0.70",
+        "weights: progress 0.70, finish 0.30, speed 0.70, smoothness 0.30",
+        f"pooled_score: {_num(report.get('pooled_score'))}",
+        f"mean_path_length_m: {_num(report.get('mean_path_length_m'))}",
+        f"mean_hand_speed_mps: {_num(report.get('mean_hand_speed_mps'))}",
+        f"mean_sparc: {_num(report.get('mean_sparc'))}",
     ]
     tasks = report.get("tasks") or {}
     for task_id, task in sorted(tasks.items()):
@@ -155,6 +168,7 @@ def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) ->
                 f"  successes: {task.get('successes')}",
                 f"  unmeasured: {task.get('unmeasured', 0)}",
                 f"  success_rate: {_num(task.get('success_rate'))}",
+                f"  progress: {_num(task.get('progress'))}",
                 f"  speed: {_num(task.get('speed'))}",
                 f"  smoothness: {_num(task.get('smoothness'))}",
                 f"  quality: {_num(task.get('quality'))}",
@@ -175,6 +189,7 @@ def _summary(score: float, metrics: AggregateMetrics, report: dict[str, Any]) ->
                     f"steps={row.get('steps')}",
                     f"elapsed_s={_num(row.get('elapsed_s'))}",
                     f"time_s={_num(row.get('completion_time_s'))}",
+                    f"progress={_num(row.get('progress'))}",
                     f"sparc={_num(row.get('sparc'))}",
                     f"speed={_num(row.get('speed'))}",
                     f"smoothness={_num(row.get('smoothness'))}",

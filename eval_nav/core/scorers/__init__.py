@@ -35,9 +35,9 @@ Manipulation
     - v2 : success_rate × (0.75 + 0.25 × time_efficiency)  [success rate is first-class multiplier]
 
 ``manipulation.multitask`` — several manipulation families in one benchmark
-    - v1 : mean over tasks of success_rate × (0.30 + 0.70 × quality);
-           quality = 0.70 × speed + 0.30 × hand-path smoothness;
-           a success without a SPARC is not counted
+    - v1 : mean over tasks of mean episode score;
+           episode = 0.70 × progress + 0.30 × terminal × quality;
+           quality = 0.70 × speed + 0.30 × smoothness, or speed when SPARC is missing
 
 Usage
 -----

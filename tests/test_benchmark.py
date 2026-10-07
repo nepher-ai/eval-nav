@@ -15,7 +15,7 @@ sys.path.insert(0, str(SOURCE / "nepher-brain-comm"))
 
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.lockstep import run_shard
-from eval_nav.benchmark.manifest import manifest_from_dict
+from eval_nav.benchmark.manifest import load_manifest, manifest_from_dict
 from eval_nav.benchmark.scheduler import assign_groups, group_shards
 from eval_nav.core.scorers import get_scorer
 from eval_nav.domain.config import EvalConfig
@@ -24,28 +24,76 @@ from eval_nav.runtime.brain import BrainRuntime
 from nepher_brain_comm.client import BrainClient
 from nepher_brain_comm.serve import run_replica
 
-
 MANIFEST = {
-    "version": "tabletop-phase1-v1",
+    "version": "franka-tabletop-v1",
     "shard_size": 4,
     "seed_salt": "phase1",
     "tasks": [
         {
-            "task_id": "place_in_container",
-            "scenes": [{"composer": "kitchen_counter", "count": 2}],
-            "variants": [{"name": "nominal"}, {"name": "jitter10", "pose_jitter_m": 0.10}],
-            "instruction_pool": "phase1_hidden",
+            "task_id": "banana_in_bowl",
+            "scene": "banana_bowl",
+            "instruction": "Pick up the banana and place it in the bowl",
+            "episode_length_s": 50,
             "episodes": 8,
+            "success": {"kind": "item_in_container", "roles": {"item": "banana", "container": "bowl"}},
         },
         {
-            "task_id": "stack_on",
-            "scenes": [{"composer": "workbench", "count": 1}],
-            "variants": [{"name": "nominal"}],
-            "instruction_pool": "phase1_hidden",
+            "task_id": "rubiks_cube_left_of_bowl",
+            "scene": "rubiks_cube_banana_bowl",
+            "instruction": "Put the rubiks cube to the left of the bowl",
+            "episode_length_s": 30,
             "episodes": 3,
+            "success": {
+                "kind": "item_on_side",
+                "side": "left",
+                "roles": {"item": "rubiks_cube", "reference": "bowl"},
+            },
         },
     ],
 }
+
+
+def test_authored_task_is_one_nominal_episode():
+    manifest = manifest_from_dict(
+        {
+            "version": "franka-tabletop-v0",
+            "shard_size": 4,
+            "seed_salt": "phase1",
+            "tasks": [
+                {
+                    "task_id": "banana_in_bowl",
+                    "scene": "banana_bowl",
+                    "instruction": "Pick up the banana and place it in the bowl",
+                    "episode_length_s": 50,
+                    "success": {"kind": "item_in_container", "roles": {"item": "banana", "container": "bowl"}},
+                }
+            ],
+        }
+    )
+    jobs = expand(manifest)
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.scene_id == "banana_bowl"
+    assert job.variant == "nominal"
+    assert job.pose_jitter_m == 0.0
+    assert job.instruction == "Pick up the banana and place it in the bowl"
+    assert manifest.tasks[0].success is not None
+    assert manifest.tasks[0].success.kind == "item_in_container"
+
+
+def test_phase_bundles_are_sixteen_distinct_tasks():
+    root = SOURCE / "envhub" / "environments"
+    seen: list[set[str]] = []
+    for name in ("franka-tabletop-v0", "franka-tabletop-v1"):
+        manifest = load_manifest(root / name / "benchmark.yaml")
+        jobs = expand(manifest)
+        task_ids = {job.task_id for job in jobs}
+        assert len(jobs) == 16
+        assert len(task_ids) == 16
+        assert {job.variant for job in jobs} == {"nominal"}
+        assert {job.pose_jitter_m for job in jobs} == {0.0}
+        seen.append(task_ids)
+    assert seen[0].isdisjoint(seen[1])
 
 
 def test_expansion_ignores_gpu_count():
@@ -63,13 +111,16 @@ def test_expansion_ignores_gpu_count():
 
 
 def test_shards_stay_inside_one_group():
-    shards = make_shards(expand(manifest_from_dict(MANIFEST)), 4)
+    shards = make_shards(expand(manifest_from_dict(MANIFEST), episodes=4), 4)
     for shard in shards:
         keys = {(job.task_id, job.scene_id, job.variant) for job in shard.jobs}
         assert len(keys) == 1
         assert len(shard.jobs) <= 4
-    # 2 scenes x 2 variants x 8 episodes = 32, plus 1 scene x 3 episodes.
-    assert sum(len(shard.jobs) for shard in shards) == 32 + 3
+        assert shard.jobs[0].variant == "nominal"
+        assert shard.jobs[0].pose_jitter_m == 0.0
+    # The manifest's episodes field is ignored. Four repeats of two tasks.
+    assert len(expand(manifest_from_dict(MANIFEST))) == 2
+    assert sum(len(shard.jobs) for shard in shards) == 8
 
 
 def test_sparc_is_closer_to_zero_for_a_minimum_jerk_reach():
@@ -90,8 +141,8 @@ def test_sparc_is_closer_to_zero_for_a_minimum_jerk_reach():
 
 def test_multitask_score_mixes_speed_and_smoothness():
     # Budget 20 s. place_relative finishes at 8 s on a minimum-jerk path.
-    # speed = 0.6, smoothness = 1, quality = 0.72, task_score = 0.804.
-    # place_in_container never succeeds, so its task score is 0.
+    # speed = 0.6, smoothness = 1, quality = 0.72.
+    # episode = 0.70 + 0.30 * 0.72 = 0.916. The other task never finishes.
     episodes = [
         EpisodeMetrics(
             0,
@@ -119,13 +170,13 @@ def test_multitask_score_mixes_speed_and_smoothness():
     assert abs(relative["speed"] - 0.6) < 1e-9
     assert abs(relative["smoothness"] - 1.0) < 1e-9
     assert abs(relative["quality"] - 0.72) < 1e-9
-    assert abs(relative["task_score"] - 0.804) < 1e-9
+    assert abs(relative["task_score"] - 0.916) < 1e-9
     assert scorer.tasks["place_in_container"]["task_score"] == 0.0
     assert scorer.task_rates["place_in_container"] == 0.0
-    assert abs(score - 0.402) < 1e-9
+    assert abs(score - 0.458) < 1e-9
 
 
-def test_unmeasured_success_is_not_scored():
+def test_missing_sparc_scores_the_finish_from_speed():
     episodes = [
         EpisodeMetrics(
             0,
@@ -141,15 +192,79 @@ def test_unmeasured_success_is_not_scored():
     scorer = get_scorer("manipulation.multitask", "v1")
     score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 500, episodes, max_episode_time_s=20.0)
     task = scorer.tasks["place_relative"]
-    assert task["speed"] is None
-    assert task["successes"] == 0
+    # T = 0.04 s, budget 20 s, speed = 0.998. Quality falls back to speed.
+    assert abs(task["speed"] - 0.998) < 1e-9
+    assert task["smoothness"] is None
+    assert task["successes"] == 1
     assert task["unmeasured"] == 1
-    assert score == 0.0
+    assert abs(score - (0.70 + 0.30 * 0.998)) < 1e-9
+
+
+def test_config_time_budget_is_the_speed_budget():
+    # A recorded task length does not replace the eval config. 8 s of 20 s is speed 0.6.
+    episodes = [
+        EpisodeMetrics(
+            0,
+            "banana_bowl",
+            1,
+            True,
+            120,
+            False,
+            completion_time=8.0,
+            extra={"task_id": "banana_in_bowl", "sparc": -1.40, "time_budget_s": 50.0},
+        )
+    ]
+    scorer = get_scorer("manipulation.multitask", "v1")
+    scorer.compute_score(AggregateMetrics.from_episodes(episodes), 750, episodes, max_episode_time_s=20.0)
+    assert abs(scorer.tasks["banana_in_bowl"]["speed"] - 0.6) < 1e-9
+
+
+def test_partial_progress_scores_below_every_finish():
+    # One of two objects placed is progress 0.5 and is not a finish: 0.70 * 0.5 = 0.35.
+    half = EpisodeMetrics(
+        0,
+        "a",
+        1,
+        False,
+        100,
+        True,
+        extra={"task_id": "both", "progress": 0.5, "sparc": -1.40},
+    )
+    instant = EpisodeMetrics(
+        1,
+        "a",
+        1,
+        True,
+        1,
+        False,
+        completion_time=0.0,
+        extra={"task_id": "instant", "progress": 1.0, "sparc": -1.40},
+    )
+    late = EpisodeMetrics(
+        2,
+        "a",
+        1,
+        True,
+        300,
+        False,
+        completion_time=20.0,
+        extra={"task_id": "late", "progress": 1.0, "sparc": None},
+    )
+    scorer = get_scorer("manipulation.multitask", "v1")
+    scorer.compute_score(
+        AggregateMetrics.from_episodes([half, instant, late]),
+        300,
+        [half, instant, late],
+        max_episode_time_s=20.0,
+    )
+    assert abs(scorer.tasks["both"]["task_score"] - 0.35) < 1e-9
+    assert abs(scorer.tasks["instant"]["task_score"] - 1.0) < 1e-9
+    assert abs(scorer.tasks["late"]["task_score"] - 0.70) < 1e-9
 
 
 def test_multitask_clips_a_late_jerky_success():
     # Finishing at the time budget with the jerky SPARC bound: speed 0, smoothness 0.
-    # task_score = 1 * 0.30.
+    # episode_score = 0.70.
     episodes = [
         EpisodeMetrics(
             0,
@@ -166,7 +281,40 @@ def test_multitask_clips_a_late_jerky_success():
     score = scorer.compute_score(AggregateMetrics.from_episodes(episodes), 500, episodes, max_episode_time_s=20.0)
     assert scorer.tasks["place_relative"]["speed"] == 0.0
     assert scorer.tasks["place_relative"]["smoothness"] == 0.0
-    assert abs(score - 0.30) < 1e-9
+    assert abs(score - 0.70) < 1e-9
+
+
+def test_kind_free_success_block_loads():
+    manifest = manifest_from_dict(
+        {
+            "version": "franka-tabletop-v0",
+            "shard_size": 4,
+            "seed_salt": "phase1",
+            "tasks": [
+                {
+                    "task_id": "three_in_bin",
+                    "scene": "bin",
+                    "instruction": "Put the three blocks in the bin",
+                    "success": {"op": "in_container", "object": ["a", "b", "c"], "container": "bin"},
+                }
+            ],
+        }
+    )
+    assert manifest.tasks[0].success is not None
+    assert manifest.tasks[0].success.kind == "in_container"
+    assert "kind" not in manifest.tasks[0].success.body
+
+
+def test_group_step_cap_is_the_eval_config():
+    from eval_nav.benchmark.orchestrate import _group_steps
+
+    shards = make_shards(expand(manifest_from_dict(MANIFEST)), 4)
+    groups = group_shards(shards)
+
+    class Config:
+        max_episode_steps = 300
+
+    assert _group_steps(Config(), groups[0]) == 300
 
 
 def test_evaluation_summary_lists_task_terms(tmp_path: Path):
@@ -210,9 +358,8 @@ def test_brain_config_requires_brain_fields(tmp_path: Path):
         "scoring_version: v1\n"
         "category: manipulation\n"
         "runtime: brain\n"
-        "num_envs: 4\n"
         "env_scenes:\n"
-        "  - {env_id: tabletop-phase1-v1, scene: 0}\n",
+        "  - {env_id: franka-tabletop-v1, scene: 0}\n",
         encoding="utf-8",
     )
     config = EvalConfig.from_yaml(path)
@@ -229,16 +376,21 @@ def test_brain_config_requires_brain_fields(tmp_path: Path):
         "scoring_version: v1\n"
         "category: manipulation\n"
         "runtime: brain\n"
-        "num_envs: 4\n"
         "seeds: [1]\n"
-        "benchmark_env_id: tabletop-phase1-v0\n"
+        "benchmark_env_id: franka-tabletop-v0\n"
         "brain:\n"
         "  socket_dir: /run/brain\n"
         "  step_timeout_s: 60\n"
         "  open_loop_horizon: 8\n",
         encoding="utf-8",
     )
-    EvalConfig.from_yaml(path).validate()
+    loaded = EvalConfig.from_yaml(path)
+    loaded.validate()
+    assert loaded.num_envs is None
+    tabletop = EvalConfig.from_yaml(SOURCE / "eval-nav" / "configs" / "task-franka-tabletop.yaml")
+    tabletop.validate()
+    assert tabletop.num_envs is None
+    assert tabletop.num_episodes == 1
 
 
 def test_lockstep_hashes_match_across_runs():

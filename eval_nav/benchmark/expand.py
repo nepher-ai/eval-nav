@@ -26,6 +26,8 @@ class EpisodeJob:
     instruction_id: str
     episode_index: int
     seed: int
+    instruction: str = ""
+    episode_length_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -44,14 +46,20 @@ class Shard:
         return (self.task_id, self.scene_id, self.variant)
 
 
-def expand(manifest: BenchmarkManifest) -> list[EpisodeJob]:
-    """Expand in a fixed order: task, scene, variant, episode."""
+def expand(manifest: BenchmarkManifest, episodes: int | None = None) -> list[EpisodeJob]:
+    """Expand in a fixed order: task, scene, variant, episode.
+
+    ``episodes`` is the repeat count from the eval config. Every task uses that count.
+    """
+    count = 1 if episodes is None else int(episodes)
+    if count < 1:
+        raise ValueError("episodes must be >= 1")
     jobs: list[EpisodeJob] = []
     for task in manifest.tasks:
         for scene_id, composer in _scenes(task.scenes):
             for variant in task.variants:
-                for index in range(task.episodes):
-                    instruction_id = f"{task.instruction_pool}#{index}"
+                for index in range(count):
+                    instruction_id = task.instruction or f"{task.instruction_pool}#{index}"
                     job_id = _digest(
                         "|".join(
                             (
@@ -75,6 +83,7 @@ def expand(manifest: BenchmarkManifest) -> list[EpisodeJob]:
                             instruction_id=instruction_id,
                             episode_index=index,
                             seed=_seed(job_id, manifest.seed_salt),
+                            instruction=task.instruction,
                         )
                     )
     return jobs
@@ -134,6 +143,6 @@ def _digest(text: str) -> str:
 
 
 def _seed(job_id: str, salt: str) -> int:
-    raw = hashlib.sha256(f"{job_id}|{salt}".encode("utf-8")).digest()
+    raw = hashlib.sha256(f"{job_id}|{salt}".encode()).digest()
     value = int.from_bytes(raw[:8], "big") % (2**31 - 1)
     return value or 1

@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
     """Expand, schedule, and collect JSONL records."""
-    shards = make_shards(expand(manifest), manifest.shard_size)
+    shards = make_shards(expand(manifest, config.num_episodes), manifest.shard_size)
     groups = group_shards(shards)
     buckets = assign_groups(groups, visible_gpu_count())
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +99,7 @@ def _run_group(config: EvalConfig, group, output_path: Path, gpu: int) -> list[d
         "benchmark_env_id": config.benchmark_env_id,
         "open_loop_horizon": int(config.brain["open_loop_horizon"]) if config.brain else 1,
         "step_timeout_s": float(config.brain["step_timeout_s"]) if config.brain else 30,
-        "max_steps": config.max_episode_steps or 400,
+        "max_steps": _group_steps(config, group),
         "runtime": config.runtime,
         "enable_cameras": config.enable_cameras,
         "shards": [_shard_payload(shard) for shard in group],
@@ -117,7 +117,7 @@ def _run_group(config: EvalConfig, group, output_path: Path, gpu: int) -> list[d
 
 
 def _rerun_first_shard(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
-    shards = make_shards(expand(manifest), manifest.shard_size)
+    shards = make_shards(expand(manifest, config.num_episodes), manifest.shard_size)
     if not shards:
         return []
     return _run_group(config, [shards[0]], output_dir / "canary.jsonl", 0)
@@ -129,6 +129,12 @@ def _compare_canary(records: list[dict], canary: list[dict]) -> dict:
         item["job_id"] for item in canary if by_id.get(item["job_id"]) != item.get("trajectory_hash")
     ]
     return {"canary_match": not mismatches, "canary_mismatches": mismatches}
+
+
+def _group_steps(config: EvalConfig, group) -> int:
+    """Step cap for every group. The eval config sets it."""
+    del group
+    return int(config.max_episode_steps or 400)
 
 
 def _shard_payload(shard) -> dict:
@@ -149,6 +155,7 @@ def _shard_payload(shard) -> dict:
                 "instruction_id": job.instruction_id,
                 "episode_index": job.episode_index,
                 "seed": job.seed,
+                "instruction": job.instruction,
             }
             for job in shard.jobs
         ],

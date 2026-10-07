@@ -69,7 +69,7 @@ class EvalConfig:
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
-    | manipulation.multitask    | v1       | SR × (0.30 + 0.70 × speed/smoothness) |
+    | manipulation.multitask    | v1       | 0.70 × progress + 0.30 × finish quality |
     +---------------------------+----------+-----------------------------------------+
     """
 
@@ -80,8 +80,11 @@ class EvalConfig:
     task_name: str
     """Gymnasium task name (e.g. 'Nepher-Spot-Nav-Envhub-Student-Play-v0')."""
 
-    num_envs: int
-    """Number of parallel environments to use for evaluation."""
+    num_envs: int | None = None
+    """Parallel environment count for an in-process run.
+
+    A brain run sizes each Isaac process from the shard, so this field is unused there.
+    """
 
     # -----------------------------------------------------------------------
     # Scoring (both fields are first-class, not legacy)
@@ -257,7 +260,9 @@ class EvalConfig:
         if self.num_episodes < 1:
             raise ValueError("num_episodes must be >= 1")
 
-        if self.num_envs < 1:
+        if self.runtime != "brain" and (self.num_envs is None or self.num_envs < 1):
+            raise ValueError("num_envs must be >= 1")
+        if self.runtime == "brain" and self.num_envs is not None and self.num_envs < 1:
             raise ValueError("num_envs must be >= 1")
 
         # Validate (task_type, scoring_version) combo against registry
