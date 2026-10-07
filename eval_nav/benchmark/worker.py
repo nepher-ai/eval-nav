@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: Proprietary
 
-"""Isaac process for one group of episodes. Started by ``evaluate.py --worker``."""
+"""Isaac process for one GPU. Started by ``evaluate.py --worker``."""
 
 from __future__ import annotations
 
@@ -17,24 +17,24 @@ from eval_nav.benchmark.expand import EpisodeJob, Shard
 
 
 def main() -> None:
-    """Start Isaac Sim and run the episodes in ``--group``."""
+    """Start Isaac Sim once and run every group assigned to this GPU."""
     from isaaclab.app import AppLauncher
 
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--group", required=True)
     pre_args, _ = pre.parse_known_args()
-    group = json.loads(Path(pre_args.group).read_text(encoding="utf-8"))
-    if group.get("device") and "--device" not in sys.argv:
-        sys.argv.extend(["--device", group["device"]])
+    payload = json.loads(Path(pre_args.group).read_text(encoding="utf-8"))
+    if payload.get("device") and "--device" not in sys.argv:
+        sys.argv.extend(["--device", payload["device"]])
 
-    parser = argparse.ArgumentParser(description="Run one evaluation group")
+    parser = argparse.ArgumentParser(description="Run one evaluation GPU")
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--group", required=True)
     parser.add_argument("--output", required=True)
     AppLauncher.add_app_launcher_args(parser)
     args_cli = parser.parse_args()
     # Lab 3 dropped the --enable_cameras flag. The launcher still reads the attribute.
-    if group.get("enable_cameras"):
+    if payload.get("enable_cameras"):
         args_cli.enable_cameras = True
 
     app_launcher = AppLauncher(args_cli)
@@ -43,57 +43,64 @@ def main() -> None:
     import gymnasium as gym
 
     from eval_nav.benchmark.lockstep import run_shard
-    from eval_nav.runtime.brain import BrainRuntime
     from eval_nav.utils.determinism import apply_determinism
 
-    module_name, class_name = group["cfg_entry"].split(":")
+    module_name, class_name = payload["cfg_entry"].split(":")
     cfg_cls = getattr(importlib.import_module(module_name), class_name)
-    if group.get("task_module"):
-        importlib.import_module(group["task_module"])
-    first = group["shards"][0]
-    num_envs = max(len(shard["jobs"]) for shard in group["shards"])
-    cfg = cfg_cls(
-        task_id=first["task_id"],
-        scene=first["scene_id"],
-        variant=first["variant"],
-        composer=first["composer"],
-        pose_jitter_m=first["pose_jitter_m"],
-        env_id=group.get("benchmark_env_id"),
-        num_envs=num_envs,
-    )
-    env = gym.make(group["task_name"], cfg=cfg)
-    unwrapped = env.unwrapped
+    if payload.get("task_module"):
+        importlib.import_module(payload["task_module"])
+    groups = payload.get("groups") or [{"shards": payload["shards"]}]
     client = None
-    if group.get("runtime") == "brain":
-        from nepher_brain_comm.client import BrainClient
-
-        client = BrainClient(group["socket"], timeout_s=float(group["step_timeout_s"]))
-        client.connect()
-        runtime = BrainRuntime(client)
-    else:
-        from eval_nav.runtime.in_process import InProcessRuntime
-        from eval_nav.utils.policy_loader import load_policy_from_checkpoint
-
-        policy = load_policy_from_checkpoint(group["policy_path"], group["task_name"], env)
-        runtime = InProcessRuntime(policy)
+    runtime = None
     lines = []
     try:
-        for shard_payload in group["shards"]:
-            apply_determinism(int(shard_payload["jobs"][0]["seed"]))
-            shard = _shard(shard_payload)
-            _prepare_jobs(unwrapped, shard)
-            records = run_shard(
-                unwrapped,
-                runtime,
-                shard,
-                open_loop_horizon=int(group["open_loop_horizon"]),
-                max_steps=int(group["max_steps"]),
+        for group in groups:
+            shards = group["shards"]
+            first = shards[0]
+            num_envs = max(len(shard["jobs"]) for shard in shards)
+            cfg = cfg_cls(
+                task_id=first["task_id"],
+                scene=first["scene_id"],
+                variant=first["variant"],
+                composer=first["composer"],
+                pose_jitter_m=first["pose_jitter_m"],
+                env_id=payload.get("benchmark_env_id"),
+                num_envs=num_envs,
             )
-            lines.extend(json.dumps(record) for record in records)
+            env = gym.make(payload["task_name"], cfg=cfg)
+            unwrapped = env.unwrapped
+            if payload.get("runtime") == "brain":
+                if runtime is None:
+                    from eval_nav.runtime.brain import BrainRuntime
+                    from nepher_brain_comm.client import BrainClient
+
+                    client = BrainClient(payload["socket"], timeout_s=float(payload["step_timeout_s"]))
+                    client.connect()
+                    runtime = BrainRuntime(client)
+            else:
+                from eval_nav.runtime.in_process import InProcessRuntime
+                from eval_nav.utils.policy_loader import load_policy_from_checkpoint
+
+                policy = load_policy_from_checkpoint(payload["policy_path"], payload["task_name"], env)
+                runtime = InProcessRuntime(policy)
+            try:
+                for shard_payload in shards:
+                    apply_determinism(int(shard_payload["jobs"][0]["seed"]))
+                    shard = _shard(shard_payload)
+                    _prepare_jobs(unwrapped, shard)
+                    records = run_shard(
+                        unwrapped,
+                        runtime,
+                        shard,
+                        open_loop_horizon=int(payload["open_loop_horizon"]),
+                        max_steps=int(payload["max_steps"]),
+                    )
+                    lines.extend(json.dumps(record) for record in records)
+            finally:
+                env.close()
     finally:
         if client is not None:
             client.close()
-        env.close()
     Path(args_cli.output).write_text("\n".join(lines) + "\n", encoding="utf-8")
     simulation_app.close()
 

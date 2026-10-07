@@ -9,15 +9,53 @@ from __future__ import annotations
 
 import os
 import subprocess
+from dataclasses import dataclass
 
 from .expand import Shard
 
 
-def visible_gpu_count() -> int:
-    """GPUs this process may use, from ``CUDA_VISIBLE_DEVICES`` or ``nvidia-smi``."""
+@dataclass(frozen=True)
+class WorkerSlot:
+    """One Isaac process. ``device_id`` is the value for ``CUDA_VISIBLE_DEVICES``."""
+
+    device_id: str
+    brain_index: int
+
+
+def visible_device_ids() -> list[str]:
+    """GPU ids this process may use, in ``CUDA_VISIBLE_DEVICES`` order."""
     raw = os.environ.get("CUDA_VISIBLE_DEVICES")
     if raw is not None and raw.strip() not in ("", "-1", "none"):
-        return max(1, len([part for part in raw.split(",") if part.strip()]))
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        return parts or ["0"]
+    return [str(index) for index in range(_nvidia_gpu_count())]
+
+
+def visible_gpu_count() -> int:
+    """How many GPUs :func:`visible_device_ids` lists."""
+    return len(visible_device_ids())
+
+
+def plan_slots(placement: str = "paired") -> list[WorkerSlot]:
+    """Isaac workers for one machine.
+
+    ``paired`` puts worker ``i`` on GPU ``i`` with ``brain-i.sock``. One GPU is one
+    worker and one brain. ``split`` keeps that pairing when only one GPU is visible.
+    With two or more, the first half are brains and the rest are Isaac workers that
+    round-robin across those brains.
+    """
+    ids = visible_device_ids()
+    if placement == "split" and len(ids) >= 2:
+        brain_count = max(1, len(ids) // 2)
+        sim_ids = ids[brain_count:]
+        return [
+            WorkerSlot(device_id=device_id, brain_index=index % brain_count)
+            for index, device_id in enumerate(sim_ids)
+        ]
+    return [WorkerSlot(device_id=device_id, brain_index=index) for index, device_id in enumerate(ids)]
+
+
+def _nvidia_gpu_count() -> int:
     try:
         completed = subprocess.run(
             ["nvidia-smi", "-L"],
@@ -46,7 +84,7 @@ def group_shards(shards: list[Shard]) -> list[list[Shard]]:
 
 
 def assign_groups(groups: list[list[Shard]], gpu_count: int) -> list[list[list[Shard]]]:
-    """Round-robin groups across GPUs. Each bucket runs one group at a time."""
+    """Round-robin groups across Isaac workers. One worker process runs its whole bucket."""
     if gpu_count < 1:
         raise ValueError("gpu_count must be >= 1")
     buckets: list[list[list[Shard]]] = [[] for _ in range(gpu_count)]

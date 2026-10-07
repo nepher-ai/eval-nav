@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from typing import Any, Protocol
 
 import numpy as np
@@ -53,8 +54,12 @@ def run_shard(
     """Run one shard and return one record per real job.
 
     Extra padded environments are not used: ``num_envs`` is the job count.
+    Cameras render on the step whose image the next brain call will read.
+    Once a chunk is half consumed, the next call runs while the rest of the
+    chunk is stepped. That call sees the mid-chunk observation.
     """
     seed = shard.jobs[0].seed
+    _set_render(env, True)
     env.reset(seed=seed)
     ids = [job.job_id for job in shard.jobs]
     seeds = [job.seed for job in shard.jobs]
@@ -68,27 +73,56 @@ def run_shard(
     hold: np.ndarray | None = None
     chunk: np.ndarray | None = None
     chunk_index = 0
-    for step in range(max_steps):
-        if chunk is None or chunk_index >= open_loop_horizon:
-            chunk = np.asarray(runtime.act(env.get_obs(), step, seed), dtype=np.float32)
-            chunk_index = 0
-        action = np.array(chunk[:, chunk_index], copy=True)
-        chunk_index += 1
-        if hold is None:
-            hold = np.zeros_like(action)
-        action[frozen] = hold[frozen]
-        hold = action
-        env.step(action)
-        logged.append(action.copy())
-        completed = np.asarray(env.task_completed(), dtype=bool)[:count]
-        newly_failed = np.asarray(env.task_failed(), dtype=bool)[:count]
-        active = ~frozen
-        success[active] = completed[active]
-        failed[active] = newly_failed[active]
-        steps[active] += 1
-        frozen |= completed | newly_failed
-        if bool(frozen.all()):
-            break
+    pending: _PendingAct | None = None
+    prefetch = open_loop_horizon >= 2
+    stagger = max(1, open_loop_horizon // 2)
+    try:
+        for step in range(max_steps):
+            if chunk is None or chunk_index >= open_loop_horizon:
+                if pending is not None:
+                    chunk = pending.join()
+                    pending = None
+                else:
+                    _set_render(env, True)
+                    chunk = np.asarray(runtime.act(env.get_obs(), step, seed), dtype=np.float32)
+                chunk_index = 0
+            action = np.array(chunk[:, chunk_index], copy=True)
+            chunk_index += 1
+            if hold is None:
+                hold = np.zeros_like(action)
+            action[frozen] = hold[frozen]
+            hold = action
+            actions_left_after = open_loop_horizon - chunk_index
+            steps_left_after = max_steps - step - 1
+            capture = (
+                prefetch
+                and pending is None
+                and chunk_index == stagger
+                and steps_left_after > actions_left_after
+                and not bool(frozen.all())
+            )
+            _set_render(env, capture or (chunk_index >= open_loop_horizon and pending is None))
+            env.step(action)
+            logged.append(action.copy())
+            completed = np.asarray(env.task_completed(), dtype=bool)[:count]
+            newly_failed = np.asarray(env.task_failed(), dtype=bool)[:count]
+            active = ~frozen
+            success[active] = completed[active]
+            failed[active] = newly_failed[active]
+            steps[active] += 1
+            frozen |= completed | newly_failed
+            if capture and not bool(frozen.all()):
+                pending = _PendingAct(runtime, _snapshot_obs(env.get_obs()), step + 1, seed)
+                pending.start()
+            if bool(frozen.all()):
+                break
+    finally:
+        # A prefetch that the episode never consumes must not outlive the socket.
+        if pending is not None and not pending.joined:
+            try:
+                pending.join()
+            except Exception:
+                pass
     runtime.end_episode(ids)
     poses = np.asarray(env.get_raw_state())
     control_dt_s = float(getattr(env, "step_dt", 0.04) or 0.04)
@@ -127,6 +161,47 @@ def run_shard(
             }
         )
     return records
+
+
+class _PendingAct:
+    """One brain call running while the current chunk is still being stepped."""
+
+    def __init__(self, runtime: ActionRuntime, obs: dict[str, np.ndarray], step: int, seed: int):
+        self._runtime = runtime
+        self._obs = obs
+        self._step = step
+        self._seed = seed
+        self._result: np.ndarray | None = None
+        self._error: BaseException | None = None
+        self.joined = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self) -> np.ndarray:
+        if not self.joined:
+            self._thread.join()
+            self.joined = True
+        if self._error is not None:
+            raise self._error
+        return self._result
+
+    def _run(self) -> None:
+        try:
+            self._result = np.asarray(self._runtime.act(self._obs, self._step, self._seed), dtype=np.float32)
+        except BaseException as exc:
+            self._error = exc
+
+
+def _snapshot_obs(obs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    return {key: np.array(value, copy=True) for key, value in obs.items()}
+
+
+def _set_render(env: StepEnv, enabled: bool) -> None:
+    """Turn RTX cameras on only for the step whose image will be sent to the brain."""
+    if hasattr(env, "render_enabled"):
+        env.render_enabled = enabled
 
 
 def _path_length(path: np.ndarray | None) -> float:

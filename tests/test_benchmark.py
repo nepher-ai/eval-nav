@@ -16,7 +16,7 @@ sys.path.insert(0, str(SOURCE / "nepher-brain-comm"))
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.lockstep import run_shard
 from eval_nav.benchmark.manifest import load_manifest, manifest_from_dict
-from eval_nav.benchmark.scheduler import assign_groups, group_shards
+from eval_nav.benchmark.scheduler import assign_groups, group_shards, plan_slots
 from eval_nav.core.scorers import get_scorer
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
@@ -306,15 +306,12 @@ def test_kind_free_success_block_loads():
 
 
 def test_group_step_cap_is_the_eval_config():
-    from eval_nav.benchmark.orchestrate import _group_steps
-
-    shards = make_shards(expand(manifest_from_dict(MANIFEST)), 4)
-    groups = group_shards(shards)
+    from eval_nav.benchmark.orchestrate import _step_cap
 
     class Config:
         max_episode_steps = 300
 
-    assert _group_steps(Config(), groups[0]) == 300
+    assert _step_cap(Config()) == 300
 
 
 def test_evaluation_summary_lists_task_terms(tmp_path: Path):
@@ -390,7 +387,22 @@ def test_brain_config_requires_brain_fields(tmp_path: Path):
     tabletop = EvalConfig.from_yaml(SOURCE / "eval-nav" / "configs" / "task-franka-tabletop.yaml")
     tabletop.validate()
     assert tabletop.num_envs is None
-    assert tabletop.num_episodes == 1
+    assert tabletop.num_episodes == 4
+    assert tabletop.brain["placement"] == "paired"
+
+
+def test_plan_slots_pairs_one_brain_per_gpu(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    slots = plan_slots("paired")
+    assert [(slot.device_id, slot.brain_index) for slot in slots] == [("0", 0), ("1", 1)]
+
+
+def test_plan_slots_splits_extra_gpus_into_brains(monkeypatch):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    assert [(slot.device_id, slot.brain_index) for slot in plan_slots("split")] == [("0", 0)]
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2,3")
+    slots = plan_slots("split")
+    assert [(slot.device_id, slot.brain_index) for slot in slots] == [("2", 0), ("3", 1)]
 
 
 def test_lockstep_hashes_match_across_runs():
@@ -399,6 +411,22 @@ def test_lockstep_hashes_match_across_runs():
     second = run_shard(_FakeEnv(len(shard.jobs)), _ZeroRuntime(), shard, open_loop_horizon=2, max_steps=4)
     assert [row["trajectory_hash"] for row in first] == [row["trajectory_hash"] for row in second]
     assert all(row["success"] for row in first)
+
+
+def test_next_brain_call_overlaps_open_loop_steps():
+    shard = make_shards(expand(manifest_from_dict(MANIFEST)), 1)[0]
+    env = _ClockEnv(len(shard.jobs))
+    runtime = _ClockRuntime()
+    run_shard(env, runtime, shard, open_loop_horizon=4, max_steps=8)
+    overlapped = [
+        stamp
+        for start, end in runtime.windows[1:]
+        for stamp in env.step_times
+        if start < stamp < end
+    ]
+    assert overlapped
+    assert not all(env.renders)
+    assert any(env.renders)
 
 
 def test_brain_runtime_against_zero_brain(tmp_path: Path):
@@ -428,6 +456,56 @@ def test_brain_runtime_against_zero_brain(tmp_path: Path):
     client.close()
     assert first.shape == (1, 1, 8)
     assert np.array_equal(first, second)
+
+
+class _ClockRuntime:
+    def __init__(self):
+        self.windows: list[tuple[float, float]] = []
+
+    def begin_episode(self, episode_ids, seeds, instructions):
+        return None
+
+    def act(self, obs, step, seed):
+        start = time.perf_counter()
+        time.sleep(0.15)
+        self.windows.append((start, time.perf_counter()))
+        count = next(iter(obs.values())).shape[0]
+        return np.zeros((count, 4, 8), dtype=np.float32)
+
+    def end_episode(self, episode_ids):
+        return None
+
+
+class _ClockEnv:
+    def __init__(self, count: int):
+        self.count = count
+        self.render_enabled = True
+        self.renders: list[bool] = []
+        self.step_times: list[float] = []
+
+    def reset(self, *, seed: int):
+        return self.get_obs(), {}
+
+    def get_obs(self):
+        return {"joint_pos": np.zeros((self.count, 7), dtype=np.float32)}
+
+    def step(self, action):
+        self.renders.append(bool(self.render_enabled))
+        self.step_times.append(time.perf_counter())
+        done = np.zeros(self.count, dtype=bool)
+        return self.get_obs(), None, done, done, {}
+
+    def task_completed(self):
+        return np.zeros(self.count, dtype=bool)
+
+    def task_failed(self):
+        return np.zeros(self.count, dtype=bool)
+
+    def instructions(self):
+        return [""] * self.count
+
+    def get_raw_state(self):
+        return np.zeros((self.count, 3), dtype=np.float64)
 
 
 class _ZeroRuntime:

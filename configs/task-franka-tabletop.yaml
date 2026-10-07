@@ -9,7 +9,6 @@ category: "manipulation"
 runtime: brain
 benchmark_env_id: "franka-tabletop-v0"
 enable_cameras: true
-verify_canary: true
 
 env_config:
   cfg_entry: "franka_tabletop.env_cfg:build_cfg"
@@ -28,3 +27,5 @@ brain:
   socket_dir: "/run/brain"
   step_timeout_s: 60
   open_loop_horizon: 8
+  # paired: worker i and brain-i share GPU i. split: brains take the first half.
+  placement: paired

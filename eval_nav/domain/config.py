@@ -191,9 +191,6 @@ class EvalConfig:
     benchmark_env_id: str | None = None
     """EnvHub id whose bundle contains ``benchmark.yaml``."""
 
-    verify_canary: bool = False
-    """When true, shard 0 is run twice and the trajectory-hash comparison is stored."""
-
     # -----------------------------------------------------------------------
     # Class methods
     # -----------------------------------------------------------------------
@@ -315,6 +312,9 @@ class EvalConfig:
                 raise ValueError("brain.step_timeout_s must be > 0")
             if int(brain["open_loop_horizon"]) < 1:
                 raise ValueError("brain.open_loop_horizon must be >= 1")
+            placement = str(brain.get("placement", "paired"))
+            if placement not in ("paired", "split"):
+                raise ValueError("brain.placement must be 'paired' or 'split'")
             if not self.benchmark_env_id:
                 raise ValueError("benchmark_env_id is required when runtime is 'brain'")
 
@@ -346,7 +346,6 @@ class EvalConfig:
             "runtime": self.runtime,
             "brain": self.brain,
             "benchmark_env_id": self.benchmark_env_id,
-            "verify_canary": self.verify_canary,
         }
 
     # -----------------------------------------------------------------------

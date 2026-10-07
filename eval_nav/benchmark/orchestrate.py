@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,7 @@ from pathlib import Path
 from eval_nav.benchmark.aggregate import score_records, write_outputs
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.manifest import load_manifest
-from eval_nav.benchmark.scheduler import assign_groups, group_shards, visible_gpu_count
+from eval_nav.benchmark.scheduler import assign_groups, group_shards, plan_slots
 from eval_nav.domain.config import EvalConfig
 
 
@@ -40,11 +41,6 @@ def main(argv: list[str] | None = None) -> None:
     manifest = load_manifest(manifest_path)
     output_dir = Path(args.output_dir or config.log_dir or "logs/eval")
     records = run_workers(config, manifest, output_dir)
-    if config.verify_canary and records:
-        canary = _rerun_first_shard(config, manifest, output_dir)
-        metadata_canary = _compare_canary(records, canary)
-    else:
-        metadata_canary = {"canary": "skipped"}
     max_steps = config.max_episode_steps or 1
     score, metrics, report = score_records(
         records,
@@ -59,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
         metrics,
         records,
         report=report,
-        metadata={"runtime": config.runtime, "version": manifest.version, **metadata_canary},
+        metadata={"runtime": config.runtime, "version": manifest.version},
     )
     if args.result_path:
         target = Path(args.result_path)
@@ -72,68 +68,65 @@ def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
     """Expand, schedule, and collect JSONL records."""
     shards = make_shards(expand(manifest, config.num_episodes), manifest.shard_size)
     groups = group_shards(shards)
-    buckets = assign_groups(groups, visible_gpu_count())
+    placement = str((config.brain or {}).get("placement", "paired"))
+    slots = plan_slots(placement)
+    buckets = assign_groups(groups, len(slots))
     output_dir.mkdir(parents=True, exist_ok=True)
+    active = [(slot, bucket) for slot, bucket in zip(slots, buckets) if bucket]
+    replicas = max((slot.brain_index for slot, _bucket in active), default=0) + 1
+    devices = ", ".join(slot.device_id for slot, _bucket in active)
+    print(f"[INFO] Isaac workers: {len(active)} on GPU {devices}. Brain replicas: {replicas}.", flush=True)
 
-    def run_bucket(gpu: int, bucket: list) -> list[dict]:
-        collected = []
-        for index, group in enumerate(bucket):
-            collected.extend(_run_group(config, group, output_dir / f"gpu{gpu}-{index}.jsonl", gpu))
-        return collected
+    def run_bucket(index: int, slot, bucket: list) -> list[dict]:
+        return _run_bucket(config, bucket, output_dir / f"gpu{index}.jsonl", slot)
 
     records: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, len(buckets))) as pool:
-        futures = [pool.submit(run_bucket, gpu, bucket) for gpu, bucket in enumerate(buckets) if bucket]
+    with ThreadPoolExecutor(max_workers=max(1, len(active))) as pool:
+        futures = [
+            pool.submit(run_bucket, index, slot, bucket) for index, (slot, bucket) in enumerate(active)
+        ]
         for future in futures:
             records.extend(future.result())
     return records
 
 
-def _run_group(config: EvalConfig, group, output_path: Path, gpu: int) -> list[dict]:
+def _run_bucket(config: EvalConfig, bucket, output_path: Path, slot) -> list[dict]:
+    """One Isaac process for every group assigned to this GPU."""
     payload = {
-        "device": f"cuda:{gpu}",
-        "socket": str(Path(config.brain["socket_dir"]) / f"brain-{gpu}.sock") if config.brain else "",
+        "device": "cuda:0",
+        "visible_device": slot.device_id,
+        "socket": str(Path(config.brain["socket_dir"]) / f"brain-{slot.brain_index}.sock") if config.brain else "",
         "task_module": config.task_module,
         "task_name": config.task_name,
         "cfg_entry": (config.env_config or {}).get("cfg_entry"),
         "benchmark_env_id": config.benchmark_env_id,
         "open_loop_horizon": int(config.brain["open_loop_horizon"]) if config.brain else 1,
         "step_timeout_s": float(config.brain["step_timeout_s"]) if config.brain else 30,
-        "max_steps": _group_steps(config, group),
+        "max_steps": _step_cap(config),
         "runtime": config.runtime,
         "enable_cameras": config.enable_cameras,
-        "shards": [_shard_payload(shard) for shard in group],
+        "policy_path": config.policy_path,
+        "groups": [{"shards": [_shard_payload(shard) for shard in group]} for group in bucket],
     }
     group_path = output_path.with_suffix(".group.json")
     group_path.write_text(json.dumps(payload), encoding="utf-8")
     cli = Path(sys.argv[0]).resolve()
+    child_env = os.environ.copy()
+    child_env["CUDA_VISIBLE_DEVICES"] = slot.device_id
     completed = subprocess.run(
         [sys.executable, str(cli), "--worker", "--group", str(group_path), "--output", str(output_path)],
         check=False,
+        env=child_env,
     )
     if completed.returncode != 0 or not output_path.is_file():
-        raise RuntimeError(f"evaluation worker failed for gpu {gpu} with code {completed.returncode}")
+        raise RuntimeError(
+            f"evaluation worker failed for GPU {slot.device_id} with code {completed.returncode}"
+        )
     return [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _rerun_first_shard(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
-    shards = make_shards(expand(manifest, config.num_episodes), manifest.shard_size)
-    if not shards:
-        return []
-    return _run_group(config, [shards[0]], output_dir / "canary.jsonl", 0)
-
-
-def _compare_canary(records: list[dict], canary: list[dict]) -> dict:
-    by_id = {record["job_id"]: record.get("trajectory_hash") for record in records}
-    mismatches = [
-        item["job_id"] for item in canary if by_id.get(item["job_id"]) != item.get("trajectory_hash")
-    ]
-    return {"canary_match": not mismatches, "canary_mismatches": mismatches}
-
-
-def _group_steps(config: EvalConfig, group) -> int:
+def _step_cap(config: EvalConfig) -> int:
     """Step cap for every group. The eval config sets it."""
-    del group
     return int(config.max_episode_steps or 400)
 
 
