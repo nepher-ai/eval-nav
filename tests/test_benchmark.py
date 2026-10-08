@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: Proprietary
 
+import json
 import sys
 import threading
 import time
@@ -345,20 +346,31 @@ def test_evaluation_summary_lists_task_terms(tmp_path: Path):
         }
     ]
     score, metrics, report = score_records(records, "manipulation.multitask", "v1", 500, max_episode_time_s=20.0)
-    write_outputs(tmp_path, score, metrics, records, report=report, metadata={"runtime": "brain"})
+    write_outputs(
+        tmp_path,
+        score,
+        metrics,
+        report=report,
+        metadata={"runtime": "brain", "elapsed_seconds": 12.5},
+    )
     text = (tmp_path / "summary.txt").read_text(encoding="utf-8")
     assert text.startswith("=" * 60)
     assert "Evaluation Summary" in text
     assert "Final Score:" in text
-    assert "place_relative" in text
-    assert "Task Score: 0.9160" in text
-    assert "Completion: 8.00 s" in text
-    assert "Smoothness: 1.0000" in text
+    assert "Evaluation Metadata:" in text
+    assert "Elapsed Time: 12.50 seconds" in text
     assert "Runtime: brain" in text
-    payload = (tmp_path / "evaluation_result.json").read_text(encoding="utf-8")
-    assert '"log_version": 2' in payload
-    assert '"tasks"' in payload
-    assert '"episodes"' in payload
+    assert "\nTasks:\n" not in text
+    assert "\nEpisodes:\n" not in text
+    assert "place_relative" not in text
+    analysis = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    assert abs(analysis["report"]["tasks"]["place_relative"]["task_score"] - 0.9160) < 1e-4
+    assert analysis["report"]["episodes"][0]["completion_time_s"] == 8.0
+    payload = json.loads((tmp_path / "evaluation_result.json").read_text(encoding="utf-8"))
+    assert payload["log_version"] == 2
+    assert "tasks" not in payload
+    assert "episodes" not in payload
+    assert "episodes" not in payload["metadata"]
 
 
 def test_brain_config_requires_brain_fields(tmp_path: Path):

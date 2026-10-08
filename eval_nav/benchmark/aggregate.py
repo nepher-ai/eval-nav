@@ -46,25 +46,25 @@ def write_outputs(
     output_dir: Path,
     score: float,
     metrics: AggregateMetrics,
-    records: list[dict[str, Any]],
     *,
     report: dict[str, Any],
     metadata: dict[str, Any],
 ) -> None:
-    """Write results.json, summary.txt, and evaluation_result.json."""
+    """Write the short summary, one analysis file, and the score contract.
+
+    Per-task and per-episode rows live only in ``results.json``. The summary is the
+    aggregate, and ``evaluation_result.json`` repeats that aggregate for the validator.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
-    ordered = sorted(records, key=lambda record: record["job_id"])
     summary = _summary(score, metrics, report, metadata)
     (output_dir / "summary.txt").write_text(summary + "\n", encoding="utf-8")
     (output_dir / "results.json").write_text(
-        json.dumps({"records": ordered, "metrics": metrics.to_dict(), "report": report}, indent=2),
+        json.dumps({"metrics": metrics.to_dict(), "report": report}, indent=2),
         encoding="utf-8",
     )
     result = {
         "score": score,
         "log_version": 2,
-        "tasks": report.get("tasks", {}),
-        "episodes": report.get("episodes", []),
         "summary": summary,
         "metadata": {
             **metadata,
@@ -72,12 +72,7 @@ def write_outputs(
             "success_rate": metrics.success_rate,
             "formula": report.get("formula"),
             "time_budget_s": report.get("time_budget_s"),
-            "sparc_smooth": report.get("sparc_smooth"),
-            "sparc_jerky": report.get("sparc_jerky"),
             "weights": report.get("weights"),
-            "task_rates": report.get("task_rates", {}),
-            "tasks": report.get("tasks", {}),
-            "episodes": report.get("episodes", []),
         },
     }
     (output_dir / "evaluation_result.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -181,31 +176,6 @@ def _summary(
             "",
         ]
     )
-    tasks = report.get("tasks") or {}
-    if tasks:
-        lines.extend(["Tasks:", _DASH])
-        for task_id, task in sorted(tasks.items()):
-            lines.extend(
-                [
-                    f"  {task_id}",
-                    f"    Episodes: {task.get('episodes')}",
-                    f"    Successes: {task.get('successes')}",
-                    f"    Unmeasured: {task.get('unmeasured', 0)}",
-                    f"    Success Rate: {_percent(task.get('success_rate'))}",
-                    f"    Progress: {_decimal(task.get('progress'))}",
-                    f"    Speed: {_decimal(task.get('speed'))}",
-                    f"    Smoothness: {_decimal(task.get('smoothness'))}",
-                    f"    Quality: {_decimal(task.get('quality'))}",
-                    f"    Task Score: {_decimal(task.get('task_score'))}",
-                    "",
-                ]
-            )
-    episodes = report.get("episodes") or []
-    if episodes:
-        lines.extend(["Episodes:", _DASH])
-        for row in episodes:
-            lines.extend(_episode_lines(row))
-            lines.append("")
     if metadata:
         lines.extend(["Evaluation Metadata:", _DASH])
         for key, label in _METADATA_FIELDS:
@@ -214,6 +184,8 @@ def _summary(
             value = metadata[key]
             if key == "max_episode_time_s":
                 value = f"{float(value):.2f} s"
+            elif key == "elapsed_seconds":
+                value = f"{float(value):.2f} seconds"
             lines.append(f"  {label}: {value}")
         lines.append("")
     lines.extend(
@@ -239,31 +211,8 @@ _METADATA_FIELDS = (
     ("num_episodes", "Episodes per Task"),
     ("max_episode_steps", "Max Steps"),
     ("max_episode_time_s", "Max Episode Time"),
+    ("elapsed_seconds", "Elapsed Time"),
 )
-
-
-def _episode_lines(row: dict[str, Any]) -> list[str]:
-    """One episode as labeled lines, not a single packed record."""
-    return [
-        f"  {row.get('job_id')}",
-        f"    Task: {row.get('task_id')}",
-        f"    Scene: {row.get('scene_id')}",
-        f"    Variant: {row.get('variant')}",
-        f"    Seed: {row.get('seed')}",
-        f"    Instruction: {row.get('instruction') or 'n/a'}",
-        f"    Success: {_yes_no(row.get('success'))}",
-        f"    Failed: {_yes_no(row.get('failed'))}",
-        f"    Timeout: {_yes_no(row.get('timeout'))}",
-        f"    Steps: {row.get('steps')}",
-        f"    Elapsed: {_quantity(row.get('elapsed_s'), 's', digits=2)}",
-        f"    Completion: {_quantity(row.get('completion_time_s'), 's', digits=2)}",
-        f"    Progress: {_decimal(row.get('progress'))}",
-        f"    SPARC: {_decimal(row.get('sparc'))}",
-        f"    Speed: {_decimal(row.get('speed'))}",
-        f"    Smoothness: {_decimal(row.get('smoothness'))}",
-        f"    Path Length: {_quantity(row.get('path_length_m'), 'm')}",
-        f"    Hand Speed: {_quantity(row.get('mean_hand_speed_mps'), 'm/s')}",
-    ]
 
 
 def _interpretation(score: float) -> str:
@@ -295,13 +244,3 @@ def _quantity(value: Any, unit: str, digits: int = 4) -> str:
     return f"{float(value):.{digits}f} {unit}"
 
 
-def _percent(value: Any) -> str:
-    if value is None:
-        return "n/a"
-    return f"{float(value):.2%}"
-
-
-def _yes_no(value: Any) -> str:
-    if value is None:
-        return "n/a"
-    return "Yes" if bool(value) else "No"

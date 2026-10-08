@@ -7,7 +7,7 @@ task_type: "manipulation.multitask"
 scoring_version: "v1"
 category: "manipulation"
 runtime: brain
-benchmark_env_id: "franka-tabletop-v2"
+benchmark_env_id: "franka-tabletop-v10"
 enable_cameras: true
 
 env_config:
@@ -16,7 +16,7 @@ env_config:
 seeds:
   - 1
 
-num_episodes: 4
+num_episodes: 1
 max_episode_steps: 600
 max_episode_time_s: 40.0
 

@@ -16,6 +16,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +45,7 @@ def main(argv: list[str] | None = None) -> None:
     manifest_path = Path(args.manifest) if args.manifest else _manifest_from_envhub(config)
     manifest = load_manifest(manifest_path)
     output_dir = _output_dir(args.output_dir, config.log_dir)
+    started = time.perf_counter()
     records = run_workers(config, manifest, output_dir)
     max_steps = config.max_episode_steps or 1
     score, metrics, report = score_records(
@@ -61,15 +64,17 @@ def main(argv: list[str] | None = None) -> None:
         "num_episodes": config.num_episodes,
         "max_episode_steps": config.max_episode_steps,
         "max_episode_time_s": config.max_episode_time_s,
+        "elapsed_seconds": time.perf_counter() - started,
     }
     write_outputs(
         output_dir,
         score,
         metrics,
-        records,
         report=report,
         metadata=metadata,
     )
+    for path in output_dir.glob("gpu*.jsonl"):
+        path.unlink()
     _write_config(output_dir, config)
     print((output_dir / "summary.txt").read_text(encoding="utf-8"), end="")
     print(f"\nResults saved to log directory: {output_dir}")
@@ -77,8 +82,6 @@ def main(argv: list[str] | None = None) -> None:
     print(f"  - Summary: {output_dir / 'summary.txt'}")
     print(f"  - Config: {output_dir / 'config.yaml'}")
     print(f"  - Result: {output_dir / 'evaluation_result.json'}")
-    for path in sorted(output_dir.glob("gpu*.jsonl")):
-        print(f"  - Records: {path}")
     if args.result_path:
         target = Path(args.result_path)
         target.write_text((output_dir / "evaluation_result.json").read_text(encoding="utf-8"), encoding="utf-8")
@@ -154,16 +157,21 @@ def _run_bucket(config: EvalConfig, bucket, output_path: Path, slot) -> list[dic
         "policy_path": config.policy_path,
         "groups": [{"shards": [_shard_payload(shard) for shard in group]} for group in bucket],
     }
-    group_path = output_path.with_suffix(".group.json")
+    group_file = tempfile.NamedTemporaryFile(prefix="eval-group-", suffix=".json", delete=False)
+    group_path = Path(group_file.name)
+    group_file.close()
     group_path.write_text(json.dumps(payload), encoding="utf-8")
     cli = Path(sys.argv[0]).resolve()
     child_env = os.environ.copy()
     child_env["CUDA_VISIBLE_DEVICES"] = slot.device_id
-    completed = subprocess.run(
-        [sys.executable, str(cli), "--worker", "--group", str(group_path), "--output", str(output_path)],
-        check=False,
-        env=child_env,
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(cli), "--worker", "--group", str(group_path), "--output", str(output_path)],
+            check=False,
+            env=child_env,
+        )
+    finally:
+        group_path.unlink(missing_ok=True)
     if completed.returncode != 0 or not output_path.is_file():
         raise RuntimeError(
             f"evaluation worker failed for GPU {slot.device_id} with code {completed.returncode}"
