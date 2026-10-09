@@ -52,12 +52,16 @@ def main() -> None:
     groups = payload.get("groups") or [{"shards": payload["shards"]}]
     client = None
     runtime = None
-    lines = []
+    output = Path(args_cli.output)
+    output.write_text("", encoding="utf-8")
     try:
         for group in groups:
             shards = group["shards"]
             first = shards[0]
             num_envs = max(len(shard["jobs"]) for shard in shards)
+            task_id = first["task_id"]
+            scene_id = first["scene_id"]
+            print(f"[INFO] scene {task_id} / {scene_id}", flush=True)
             cfg = cfg_cls(
                 task_id=first["task_id"],
                 scene=first["scene_id"],
@@ -83,6 +87,7 @@ def main() -> None:
 
                 policy = load_policy_from_checkpoint(payload["policy_path"], payload["task_name"], env)
                 runtime = InProcessRuntime(policy)
+            group_lines: list[str] = []
             try:
                 for shard_payload in shards:
                     apply_determinism(int(shard_payload["jobs"][0]["seed"]))
@@ -95,13 +100,15 @@ def main() -> None:
                         open_loop_horizon=int(payload["open_loop_horizon"]),
                         max_steps=int(payload["max_steps"]),
                     )
-                    lines.extend(json.dumps(record) for record in records)
+                    group_lines.extend(json.dumps(record) for record in records)
             finally:
                 env.close()
+            # The next scene rebuild is what Kit crashes on. Keep this scene first.
+            with output.open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(group_lines) + "\n")
     finally:
         if client is not None:
             client.close()
-    Path(args_cli.output).write_text("\n".join(lines) + "\n", encoding="utf-8")
     simulation_app.close()
 
 

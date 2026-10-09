@@ -72,6 +72,17 @@ def _nvidia_gpu_count() -> int:
     return count or 1
 
 
+# One Kit process dies in the camera graph after about ten scene rebuilds (exit 139).
+GROUPS_PER_PROCESS = 8
+
+
+def batch_groups(groups: list, limit: int = GROUPS_PER_PROCESS) -> list[list]:
+    """Split groups so each Isaac process rebuilds the camera graph fewer than ten times."""
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    return [groups[start : start + limit] for start in range(0, len(groups), limit)]
+
+
 def group_shards(shards: list[Shard]) -> list[list[Shard]]:
     """One group per (task, scene, variant), preserving shard order."""
     groups: list[list[Shard]] = []
@@ -84,7 +95,7 @@ def group_shards(shards: list[Shard]) -> list[list[Shard]]:
 
 
 def assign_groups(groups: list[list[Shard]], gpu_count: int) -> list[list[list[Shard]]]:
-    """Round-robin groups across Isaac workers. One worker process runs its whole bucket."""
+    """Round-robin groups across GPUs. The caller restarts Isaac every ``GROUPS_PER_PROCESS`` groups."""
     if gpu_count < 1:
         raise ValueError("gpu_count must be >= 1")
     buckets: list[list[list[Shard]]] = [[] for _ in range(gpu_count)]

@@ -27,7 +27,7 @@ import yaml
 from eval_nav.benchmark.aggregate import score_records, write_outputs
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.manifest import load_manifest
-from eval_nav.benchmark.scheduler import assign_groups, group_shards, plan_slots
+from eval_nav.benchmark.scheduler import assign_groups, batch_groups, group_shards, plan_slots
 from eval_nav.domain.config import EvalConfig
 
 
@@ -140,7 +140,16 @@ def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
 
 
 def _run_bucket(config: EvalConfig, bucket, output_path: Path, slot) -> list[dict]:
-    """One Isaac process for every group assigned to this GPU."""
+    """Several Isaac processes for this GPU. Each one is closed before the camera graph fills up."""
+    records: list[dict] = []
+    for batch_index, batch in enumerate(batch_groups(bucket)):
+        part = output_path.with_name(f"{output_path.stem}-{batch_index:02d}{output_path.suffix}")
+        records.extend(_run_process(config, batch, part, slot))
+    return records
+
+
+def _run_process(config: EvalConfig, bucket, output_path: Path, slot) -> list[dict]:
+    """One Isaac process for one batch of scene groups."""
     payload = {
         "device": "cuda:0",
         "visible_device": slot.device_id,
@@ -173,8 +182,10 @@ def _run_bucket(config: EvalConfig, bucket, output_path: Path, slot) -> list[dic
     finally:
         group_path.unlink(missing_ok=True)
     if completed.returncode != 0 or not output_path.is_file():
+        task_id = bucket[0][0].task_id if bucket else "unknown"
         raise RuntimeError(
-            f"evaluation worker failed for GPU {slot.device_id} with code {completed.returncode}"
+            f"evaluation worker failed for GPU {slot.device_id} with code {completed.returncode} "
+            f"starting at {task_id}"
         )
     return [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(SOURCE / "nepher-brain-comm"))
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.lockstep import run_shard
 from eval_nav.benchmark.manifest import load_manifest, manifest_from_dict
-from eval_nav.benchmark.scheduler import assign_groups, group_shards, plan_slots
+from eval_nav.benchmark.scheduler import GROUPS_PER_PROCESS, assign_groups, batch_groups, group_shards, plan_slots
 from eval_nav.core.scorers import get_scorer
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
@@ -122,6 +122,14 @@ def test_shards_stay_inside_one_group():
     # The manifest's episodes field is ignored. Four repeats of two tasks.
     assert len(expand(manifest_from_dict(MANIFEST))) == 2
     assert sum(len(shard.jobs) for shard in shards) == 8
+
+
+def test_scene_rebuilds_stay_under_the_camera_graph_limit():
+    groups = list(range(10))
+    batches = batch_groups(groups)
+    assert GROUPS_PER_PROCESS < 10
+    assert [len(batch) for batch in batches] == [GROUPS_PER_PROCESS, 10 - GROUPS_PER_PROCESS]
+    assert [item for batch in batches for item in batch] == groups
 
 
 def test_sparc_is_closer_to_zero_for_a_minimum_jerk_reach():
