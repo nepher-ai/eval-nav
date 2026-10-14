@@ -17,7 +17,14 @@ sys.path.insert(0, str(SOURCE / "nepher-brain-comm"))
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.lockstep import run_shard
 from eval_nav.benchmark.manifest import load_manifest, manifest_from_dict
-from eval_nav.benchmark.scheduler import GROUPS_PER_PROCESS, assign_groups, batch_groups, group_shards, plan_slots
+from eval_nav.benchmark.scheduler import (
+    GROUPS_PER_PROCESS,
+    assign_groups,
+    batch_groups,
+    group_shards,
+    plan_slots,
+    plan_units,
+)
 from eval_nav.core.scorers import get_scorer
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
@@ -585,3 +592,242 @@ class _FakeEnv:
 
     def get_raw_state(self):
         return np.zeros((self.count, 3), dtype=np.float64)
+
+
+# --- scene packing, pull queue, crash resume ---------------------------------------------------
+
+
+def _scene_file(bundle: Path, task: str, scene: str, **overrides) -> None:
+    payload = {
+        "scene_id": scene,
+        "task_id": task,
+        "background": "home_office",
+        "surface": "oak",
+        "instruction": f"do {task}",
+        "placements": [
+            {"slot": "banana", "kind": "item", "usd": "banana.usd", "position_m": [0.3, 0.0, 0.0]},
+            {"slot": "bowl", "kind": "container", "usd": "bowl.usd", "position_m": [0.4, 0.1, 0.0]},
+            {"slot": "mark", "kind": "anchor", "position_m": [0.0, 0.0, 0.0]},
+        ],
+    }
+    payload.update(overrides)
+    (bundle / "scenes").mkdir(parents=True, exist_ok=True)
+    (bundle / "scenes" / f"{task}-{scene}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _packed_manifest(tmp_path: Path, shard_size: int = 4):
+    success = {"op": "in_container", "objects": ["banana"], "container": "bowl"}
+    tasks = [
+        {"task_id": name, "scene": scene, "instruction": f"do {name}", "success": success}
+        for name, scene in (("a", "s1"), ("b", "s1"), ("c", "s2"), ("d", "s3"))
+    ]
+    data = {"version": "v", "shard_size": shard_size, "seed_salt": "x", "pack_by": "assets", "tasks": tasks}
+    _scene_file(tmp_path, "a", "s1")
+    _scene_file(tmp_path, "b", "s1", instruction="other words")
+    _scene_file(tmp_path, "c", "s2", background="billiard_hall")
+    _scene_file(tmp_path, "d", "s3")
+    return manifest_from_dict(data, bundle_dir=tmp_path)
+
+
+def test_assets_pack_tasks_that_build_the_same_stage(tmp_path: Path):
+    from eval_nav.benchmark.packing import pack_key_for
+
+    manifest = _packed_manifest(tmp_path)
+    shards = make_shards(expand(manifest), manifest.shard_size, pack_key_for(manifest))
+    groups = group_shards(shards)
+    assert sorted(sum(len(shard.jobs) for shard in group) for group in groups) == [1, 3]
+    big = max(groups, key=lambda group: len(group[0].jobs))
+    assert {job.task_id for job in big[0].jobs} == {"a", "b", "d"}
+
+
+def test_packing_splits_by_shard_size_and_ignores_gpu_count(tmp_path: Path):
+    from eval_nav.benchmark.packing import pack_key_for
+
+    manifest = _packed_manifest(tmp_path, shard_size=2)
+    shards = make_shards(expand(manifest), manifest.shard_size, pack_key_for(manifest))
+    assert all(len(shard.jobs) <= 2 for shard in shards)
+    groups = group_shards(shards)
+    assert len(groups) == 2
+    expected = sorted(job.job_id for shard in shards for job in shard.jobs)
+    for workers in (1, 2, 5):
+        units = plan_units(groups, workers)
+        assert sorted(_job_ids_of(units)) == expected
+
+
+def test_pack_by_none_keeps_one_build_per_task(tmp_path: Path):
+    from eval_nav.benchmark.packing import pack_key_for
+
+    manifest = _packed_manifest(tmp_path)
+    manifest.pack_by = "none"
+    assert pack_key_for(manifest) is None
+    assert len(group_shards(make_shards(expand(manifest), 4))) == 4
+
+
+def test_signature_ignores_poses_and_tracks_assets(tmp_path: Path):
+    from eval_nav.benchmark.packing import scene_signature
+
+    _scene_file(tmp_path, "a", "s1")
+    _scene_file(tmp_path, "b", "s1", instruction="x")
+    _scene_file(tmp_path, "c", "s1", surface="maple")
+    other = [{"slot": "banana", "kind": "item", "usd": "other.usd", "position_m": [0, 0, 0]}]
+    _scene_file(tmp_path, "d", "s1", placements=other)
+    moved = [
+        {"slot": "banana", "kind": "item", "usd": "banana.usd", "position_m": [0.9, 0.9, 0.0]},
+        {"slot": "bowl", "kind": "container", "usd": "bowl.usd", "position_m": [0.1, 0.1, 0.0]},
+    ]
+    _scene_file(tmp_path, "e", "s1", placements=moved)
+    sig = {name: scene_signature(tmp_path, name, "s1") for name in "abcde"}
+    assert sig["a"] == sig["b"] == sig["e"]
+    assert len({sig["a"], sig["c"], sig["d"]}) == 3
+
+
+def test_unknown_pack_mode_is_rejected():
+    import pytest
+
+    with pytest.raises(ValueError):
+        manifest_from_dict({**MANIFEST, "pack_by": "everything"})
+
+
+def test_v10_bundle_packs_into_fewer_scene_builds():
+    import pytest
+
+    from eval_nav.benchmark.packing import pack_key_for
+
+    path = SOURCE / "envhub" / "environments" / "franka-tabletop-v10" / "benchmark.yaml"
+    if not path.is_file():
+        pytest.skip("franka-tabletop-v10 is not checked out")
+    manifest = load_manifest(path)
+    jobs = expand(manifest)
+    plain = group_shards(make_shards(jobs, 1))
+    manifest.pack_by = "assets"
+    manifest.shard_size = 8
+    packed = group_shards(make_shards(jobs, manifest.shard_size, pack_key_for(manifest)))
+    assert len(plain) == len(jobs) == 120
+    assert len(packed) < len(plain) / 2
+    assert sum(len(shard.jobs) for group in packed for shard in group) == 120
+
+
+def test_v11_bundle_is_packed_and_self_contained():
+    import json
+
+    import pytest
+
+    from eval_nav.benchmark.packing import pack_key_for
+
+    root = SOURCE / "envhub" / "environments" / "franka-tabletop-v11"
+    if not (root / "benchmark.yaml").is_file():
+        pytest.skip("franka-tabletop-v11 is not checked out")
+    manifest = load_manifest(root / "benchmark.yaml")
+    assert manifest.version == "franka-tabletop-v11"
+    assert manifest.pack_by == "assets"
+    jobs = expand(manifest)
+    groups = group_shards(make_shards(jobs, manifest.shard_size, pack_key_for(manifest)))
+    shards = [shard for group in groups for shard in group]
+    assert len(jobs) == 120
+    assert len(groups) == 47
+    assert max(len(shard.jobs) for shard in shards) <= manifest.shard_size
+    assert sum(len(shard.jobs) for shard in shards) == 120
+    # Every asset a scene names is inside the bundle, not borrowed from another version.
+    missing = set()
+    for scene in (root / "scenes").glob("*.json"):
+        for placement in json.loads(scene.read_text(encoding="utf-8"))["placements"]:
+            if placement.get("usd") and not (root / placement["usd"]).is_file():
+                missing.add(placement["usd"])
+    assert not missing
+    assert not (root / "assets").is_symlink()
+
+
+def _groups(count: int):
+    """One group with one job per task."""
+    success = {"op": "in_container", "objects": ["banana"], "container": "bowl"}
+    tasks = [
+        {"task_id": f"t{index}", "scene": f"s{index}", "instruction": "go", "success": success}
+        for index in range(count)
+    ]
+    manifest = manifest_from_dict({"version": "v", "shard_size": 1, "seed_salt": "x", "tasks": tasks})
+    return group_shards(make_shards(expand(manifest), 1))
+
+
+def _job_ids_of(units) -> list[str]:
+    return [job.job_id for unit in units for group in unit for shard in group for job in shard.jobs]
+
+
+def _record(job_id: str) -> dict:
+    return {"job_id": job_id, "task_id": "t", "scene_id": "s", "variant": "nominal"}
+
+
+def test_plan_units_orders_by_cost_and_bounds_process_size():
+    groups = _groups(3)
+    mixed = [groups[0], groups[1] + groups[1], groups[2] + groups[2] + groups[2]]
+    flat = [group for unit in plan_units(mixed, workers=1) for group in unit]
+    assert [sum(len(shard.jobs) for shard in group) for group in flat] == [3, 2, 1]
+    many = _groups(100)
+    assert max(len(unit) for unit in plan_units(many, workers=1)) == GROUPS_PER_PROCESS
+    assert len(plan_units(many, workers=8)) >= 8
+    assert plan_units([], workers=4) == []
+
+
+def test_queue_gives_work_to_whichever_worker_is_idle():
+    from eval_nav.benchmark.scheduler import WorkerSlot, run_queue
+
+    units = [[group] for group in _groups(8)]
+    seen = {"0": 0, "1": 0}
+
+    def run_unit(slot, unit, attempt):
+        seen[slot.device_id] += 1
+        time.sleep(0.2 if slot.device_id == "0" else 0.01)
+        return [_record(job_id) for job_id in _job_ids_of([unit])]
+
+    records = run_queue([WorkerSlot("0", 0), WorkerSlot("1", 1)], units, run_unit)
+    assert sorted(row["job_id"] for row in records) == sorted(_job_ids_of(units))
+    assert seen["1"] > seen["0"]
+
+
+def test_queue_runs_only_unfinished_groups_after_a_crash():
+    from eval_nav.benchmark.scheduler import UnitFailed, WorkerSlot, run_queue
+
+    unit = _groups(4)
+    calls: list[tuple[int, list[str]]] = []
+
+    def run_unit(slot, groups_in, attempt):
+        ids = _job_ids_of([groups_in])
+        calls.append((attempt, ids))
+        if attempt == 0:
+            raise UnitFailed("exit 139", [_record(job_id) for job_id in ids[:2]])
+        return [_record(job_id) for job_id in ids]
+
+    records = run_queue([WorkerSlot("0", 0)], [unit], run_unit, retries=1)
+    first, second = calls
+    assert sorted(row["job_id"] for row in records) == sorted(first[1])
+    assert second == (1, first[1][2:])
+
+
+def test_queue_raises_when_a_unit_keeps_crashing():
+    import pytest
+
+    from eval_nav.benchmark.scheduler import UnitFailed, WorkerSlot, run_queue
+
+    def run_unit(slot, unit, attempt):
+        raise UnitFailed("exit 139", [])
+
+    with pytest.raises(UnitFailed):
+        run_queue([WorkerSlot("0", 0)], [_groups(2)], run_unit, retries=1)
+
+
+def test_partial_worker_output_is_kept_and_a_torn_line_is_dropped(tmp_path: Path):
+    from eval_nav.benchmark.orchestrate import _read_records
+
+    path = tmp_path / "gpu0-000.jsonl"
+    path.write_text(json.dumps(_record("a")) + "\n" + json.dumps(_record("b")) + '\n{"job_id": "c', encoding="utf-8")
+    assert [row["job_id"] for row in _read_records(path)] == ["a", "b"]
+    assert _read_records(tmp_path / "missing.jsonl") == []
+
+
+def test_lockstep_records_where_wall_time_went():
+    from eval_nav.benchmark.orchestrate import wall_summary
+
+    shard = make_shards(expand(manifest_from_dict(MANIFEST)), 2)[0]
+    rows = run_shard(_FakeEnv(len(shard.jobs)), _ZeroRuntime(), shard, open_loop_horizon=2, max_steps=4)
+    assert len({json.dumps(row["wall"], sort_keys=True) for row in rows}) == 1
+    assert set(rows[0]["wall"]) >= {"reset_s", "obs_s", "brain_wait_s", "step_s", "envs", "shard"}
+    assert "over 1 shard runs" in wall_summary(rows)

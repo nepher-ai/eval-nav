@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .manifest import BenchmarkManifest, SceneRequest
@@ -40,9 +41,13 @@ class Shard:
     variant: str
     pose_jitter_m: float
     jobs: tuple[EpisodeJob, ...]
+    pack: str = ""
+    """Stage signature when jobs of several tasks share one environment. Empty otherwise."""
 
     @property
     def group_key(self) -> tuple[str, str, str]:
+        if self.pack:
+            return ("pack", self.pack, self.variant)
         return (self.task_id, self.scene_id, self.variant)
 
 
@@ -89,10 +94,22 @@ def expand(manifest: BenchmarkManifest, episodes: int | None = None) -> list[Epi
     return jobs
 
 
-def make_shards(jobs: list[EpisodeJob], shard_size: int) -> list[Shard]:
-    """Pack jobs into fixed-size shards inside each (task, scene, variant) group."""
+def make_shards(
+    jobs: list[EpisodeJob],
+    shard_size: int,
+    pack_key: Callable[[EpisodeJob], str] | None = None,
+) -> list[Shard]:
+    """Pack jobs into fixed-size shards inside each group.
+
+    A group is one (task, scene, variant). With ``pack_key`` it is every job that
+    returns the same key and variant, whatever its task, so one environment serves
+    them all. Group order follows the first job of each group, and job order
+    inside a group follows expansion order, so neither depends on GPU count.
+    """
     if shard_size < 1:
         raise ValueError("shard_size must be >= 1")
+    if pack_key is not None:
+        return _make_packed_shards(jobs, shard_size, pack_key)
     shards: list[Shard] = []
     group: list[EpisodeJob] = []
     for job in jobs:
@@ -109,6 +126,18 @@ def make_shards(jobs: list[EpisodeJob], shard_size: int) -> list[Shard]:
     return shards
 
 
+def _make_packed_shards(
+    jobs: list[EpisodeJob], shard_size: int, pack_key: Callable[[EpisodeJob], str]
+) -> list[Shard]:
+    groups: dict[tuple[str, str], list[EpisodeJob]] = {}
+    for job in jobs:
+        groups.setdefault((pack_key(job), job.variant), []).append(job)
+    shards: list[Shard] = []
+    for (signature, _variant), group in groups.items():
+        shards.extend(_pack(group, shard_size, pack=signature))
+    return shards
+
+
 def _scenes(scenes: list[SceneRequest]) -> list[tuple[str, str]]:
     expanded = []
     for scene in scenes:
@@ -120,7 +149,7 @@ def _scenes(scenes: list[SceneRequest]) -> list[tuple[str, str]]:
     return expanded
 
 
-def _pack(jobs: list[EpisodeJob], shard_size: int) -> list[Shard]:
+def _pack(jobs: list[EpisodeJob], shard_size: int, pack: str = "") -> list[Shard]:
     shards = []
     for start in range(0, len(jobs), shard_size):
         chunk = tuple(jobs[start : start + shard_size])
@@ -133,6 +162,7 @@ def _pack(jobs: list[EpisodeJob], shard_size: int) -> list[Shard]:
                 variant=first.variant,
                 pose_jitter_m=first.pose_jitter_m,
                 jobs=chunk,
+                pack=pack,
             )
         )
     return shards

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+import time
 from typing import Any, Protocol
 
 import numpy as np
@@ -59,11 +60,14 @@ def run_shard(
     chunk is stepped. That call sees the mid-chunk observation.
     """
     seed = shard.jobs[0].seed
+    clock = {"reset_s": 0.0, "obs_s": 0.0, "brain_wait_s": 0.0, "step_s": 0.0}
+    started = time.perf_counter()
     _set_render(env, True)
     env.reset(seed=seed)
     ids = [job.job_id for job in shard.jobs]
     seeds = [job.seed for job in shard.jobs]
     runtime.begin_episode(ids, seeds, env.instructions())
+    clock["reset_s"] = time.perf_counter() - started
     count = len(shard.jobs)
     frozen = np.zeros(count, dtype=bool)
     success = np.zeros(count, dtype=bool)
@@ -80,11 +84,18 @@ def run_shard(
         for step in range(max_steps):
             if chunk is None or chunk_index >= open_loop_horizon:
                 if pending is not None:
+                    waited = time.perf_counter()
                     chunk = pending.join()
+                    clock["brain_wait_s"] += time.perf_counter() - waited
                     pending = None
                 else:
                     _set_render(env, True)
-                    chunk = np.asarray(runtime.act(env.get_obs(), step, seed), dtype=np.float32)
+                    fetched = time.perf_counter()
+                    obs = env.get_obs()
+                    asked = time.perf_counter()
+                    chunk = np.asarray(runtime.act(obs, step, seed), dtype=np.float32)
+                    clock["obs_s"] += asked - fetched
+                    clock["brain_wait_s"] += time.perf_counter() - asked
                 chunk_index = 0
             action = np.array(chunk[:, chunk_index], copy=True)
             chunk_index += 1
@@ -102,7 +113,9 @@ def run_shard(
                 and not bool(frozen.all())
             )
             _set_render(env, capture or (chunk_index >= open_loop_horizon and pending is None))
+            stepped = time.perf_counter()
             env.step(action)
+            clock["step_s"] += time.perf_counter() - stepped
             logged.append(action.copy())
             completed = np.asarray(env.task_completed(), dtype=bool)[:count]
             newly_failed = np.asarray(env.task_failed(), dtype=bool)[:count]
@@ -112,7 +125,10 @@ def run_shard(
             steps[active] += 1
             frozen |= completed | newly_failed
             if capture and not bool(frozen.all()):
-                pending = _PendingAct(runtime, _snapshot_obs(env.get_obs()), step + 1, seed)
+                fetched = time.perf_counter()
+                snapshot = _snapshot_obs(env.get_obs())
+                clock["obs_s"] += time.perf_counter() - fetched
+                pending = _PendingAct(runtime, snapshot, step + 1, seed)
                 pending.start()
             if bool(frozen.all()):
                 break
@@ -129,6 +145,7 @@ def run_shard(
     paths = env.hand_positions() if hasattr(env, "hand_positions") else None
     texts = list(env.instructions()) if hasattr(env, "instructions") else []
     progress = np.asarray(env.task_progress(), dtype=np.float64) if hasattr(env, "task_progress") else None
+    wall = {**{key: round(value, 3) for key, value in clock.items()}, "envs": count, "shard": ids[0]}
     records = []
     for index, job in enumerate(shard.jobs):
         done = bool(success[index])
@@ -158,6 +175,7 @@ def run_shard(
                 "sparc": None if path is None else sparc_from_positions(path, control_dt_s),
                 "final_positions_m": np.round(np.asarray(poses[index], dtype=np.float64), 4).tolist(),
                 "trajectory_hash": trajectory_hash([row[index] for row in logged], poses[index]),
+                "wall": wall,
             }
         )
     return records

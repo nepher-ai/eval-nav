@@ -73,15 +73,24 @@ class BenchmarkManifest:
     shard_size: int
     seed_salt: str
     tasks: list[TaskRequest] = field(default_factory=list)
+    pack_by: str = "none"
+    """``none`` builds one environment per (task, scene, variant). ``assets`` runs every task that
+    builds the same Isaac stage in one environment, up to ``shard_size`` episodes at a time."""
+    bundle_dir: Path | None = None
+    """Directory that holds ``benchmark.yaml`` and the scene files. Set by :func:`load_manifest`."""
+
+
+PACK_MODES = ("none", "assets")
 
 
 def load_manifest(path: str | Path) -> BenchmarkManifest:
     """Load ``benchmark.yaml``."""
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    return manifest_from_dict(data)
+    path = Path(path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return manifest_from_dict(data, bundle_dir=path.parent)
 
 
-def manifest_from_dict(data: dict[str, Any]) -> BenchmarkManifest:
+def manifest_from_dict(data: dict[str, Any], bundle_dir: str | Path | None = None) -> BenchmarkManifest:
     """Build a manifest from a parsed mapping."""
     tasks = [_task(item) for item in data["tasks"]]
     manifest = BenchmarkManifest(
@@ -89,9 +98,13 @@ def manifest_from_dict(data: dict[str, Any]) -> BenchmarkManifest:
         shard_size=int(data["shard_size"]),
         seed_salt=str(data["seed_salt"]),
         tasks=tasks,
+        pack_by=str(data.get("pack_by", "none")),
+        bundle_dir=None if bundle_dir is None else Path(bundle_dir),
     )
     if manifest.shard_size < 1:
         raise ValueError("shard_size must be >= 1")
+    if manifest.pack_by not in PACK_MODES:
+        raise ValueError(f"pack_by must be one of {PACK_MODES}, got {manifest.pack_by!r}")
     return manifest
 
 

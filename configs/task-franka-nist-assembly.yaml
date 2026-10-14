@@ -1,0 +1,47 @@
+# Evaluation configuration for task-franka-nist-assembly
+#
+# One shared Franka policy plays 12 NIST Task Board #1 assembly pairs on the
+# franka-nist-assembly-v0 EnvHub bundle: 16 frozen reset states per pair, one
+# per env, 192 envs. A tile succeeds when the held part reaches the assembled
+# pose within 1 mm.
+#
+# Uses manipulation.pick_place / v2 scoring: success_rate x (0.75 + 0.25 x time_efficiency).
+# No locomotion telemetry is required.
+#
+# Prerequisites:
+#   1. EnvHub can resolve ``franka-nist-assembly-v0`` (nepher cache), or it was built locally with
+#      task-franka-nist-assembly/scripts/build_envhub_bundle.py.
+#   2. Install franka_nist_assembly: pip install -e task-franka-nist-assembly/source/franka_nist_assembly
+#   3. Install nepher (envhub): pip install -e envhub
+#   4. task-franka-nist-assembly/best_policy/best_policy.pt exists.
+
+task_name: "Nepher-Franka-NistAssembly-Envhub-Play-v0"
+task_module: "franka_nist_assembly.tasks"
+category: "manipulation"
+
+env_scenes:
+  - env_id: "franka-nist-assembly-v0"
+    scene: 0
+
+seeds:
+  - 42
+
+# 12 pairs x 16 tiles, one tile per env
+num_envs: 192
+
+num_episodes: 1
+
+# 15 s at the 25 Hz control rate (dt 0.04 s)
+max_episode_steps: 375
+max_episode_time_s: 15.0
+
+# Scorer: manipulation pick-and-place, version 2
+task_type: "manipulation.pick_place"
+scoring_version: "v2"
+
+log_dir: "logs/franka-nist-assembly"
+enable_logging: true
+enable_cameras: false
+timeout_seconds: null
+policy_path: "default"
+workflow: "rsl_rl"

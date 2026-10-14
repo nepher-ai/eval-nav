@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .expand import Shard
@@ -92,6 +95,107 @@ def group_shards(shards: list[Shard]) -> list[list[Shard]]:
         else:
             groups[-1].append(shard)
     return groups
+
+
+# Aim for this many units per worker, so a slow unit leaves other workers something to take.
+UNITS_PER_WORKER = 3
+
+
+class UnitFailed(RuntimeError):
+    """An Isaac process died. ``records`` holds what it finished before it did."""
+
+    def __init__(self, message: str, records: list[dict] | None = None):
+        super().__init__(message)
+        self.records = records or []
+
+
+def group_cost(group: list[Shard]) -> int:
+    """Relative cost of one group: its episode count."""
+    return sum(len(shard.jobs) for shard in group)
+
+
+def plan_units(groups: list[list[Shard]], workers: int, limit: int = GROUPS_PER_PROCESS) -> list[list[list[Shard]]]:
+    """Cut groups into units of work, largest first.
+
+    A unit is what one Isaac process runs. It is small enough that every worker
+    gets about :data:`UNITS_PER_WORKER` of them, and never more than ``limit``
+    groups, so the camera graph is rebuilt fewer than ten times per process.
+    Which worker runs which unit is decided at run time, so the plan does not
+    depend on the GPU count except through the unit size.
+    """
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    if not groups:
+        return []
+    ordered = sorted(groups, key=group_cost, reverse=True)
+    target = UNITS_PER_WORKER * max(1, workers)
+    size = max(1, min(limit, -(-len(ordered) // target)))
+    return [ordered[start : start + size] for start in range(0, len(ordered), size)]
+
+
+def unfinished(groups: list[list[Shard]], records: list[dict]) -> list[list[Shard]]:
+    """Groups with at least one job that has no record yet."""
+    done = {record["job_id"] for record in records}
+    return [group for group in groups if any(job.job_id not in done for shard in group for job in shard.jobs)]
+
+
+def run_queue(
+    slots: list[WorkerSlot],
+    units: list[list[list[Shard]]],
+    run_unit,
+    retries: int = 1,
+) -> list[dict]:
+    """Run units on idle workers and return every record.
+
+    Args:
+        slots: One entry per Isaac worker. Each runs one unit at a time.
+        units: Output of :func:`plan_units`.
+        run_unit: ``run_unit(slot, groups, attempt)`` returns the unit's records, or raises
+            :class:`UnitFailed` carrying the records it finished.
+        retries: How many times the unfinished part of a crashed unit is run again.
+
+    Raises:
+        RuntimeError: A unit still had unfinished groups after its last attempt.
+    """
+    pending = deque((groups, 0) for groups in units)
+    lock = threading.Lock()
+    records: list[dict] = []
+    failures: list[BaseException] = []
+
+    def work(slot: WorkerSlot) -> None:
+        while True:
+            with lock:
+                if failures or not pending:
+                    return
+                groups, attempt = pending.popleft()
+            try:
+                found = run_unit(slot, groups, attempt)
+                missing: list[list[Shard]] = []
+                error: BaseException | None = None
+            except UnitFailed as exc:
+                found = exc.records
+                missing = unfinished(groups, found)
+                error = exc
+            except Exception as exc:
+                with lock:
+                    failures.append(exc)
+                return
+            with lock:
+                records.extend(found)
+                if error is None or not missing:
+                    continue
+                if attempt < retries:
+                    print(f"[WARN] {error}. Running {len(missing)} unfinished group(s) again.", flush=True)
+                    pending.appendleft((missing, attempt + 1))
+                else:
+                    failures.append(error)
+
+    with ThreadPoolExecutor(max_workers=max(1, len(slots))) as pool:
+        for future in [pool.submit(work, slot) for slot in slots]:
+            future.result()
+    if failures:
+        raise failures[0]
+    return records
 
 
 def assign_groups(groups: list[list[Shard]], gpu_count: int) -> list[list[list[Shard]]]:

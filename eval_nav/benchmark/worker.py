@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -52,16 +53,30 @@ def main() -> None:
     groups = payload.get("groups") or [{"shards": payload["shards"]}]
     client = None
     runtime = None
+    observation: dict = {}
     output = Path(args_cli.output)
     output.write_text("", encoding="utf-8")
     try:
+        if payload.get("runtime") == "brain":
+            from eval_nav.runtime.brain import BrainRuntime
+            from nepher_brain_comm.client import BrainClient
+
+            # Connect before the first scene so a brain that is still loading is waited for here.
+            client = BrainClient(
+                payload["socket"],
+                timeout_s=float(payload["step_timeout_s"]),
+                connect_wait_s=float(payload.get("connect_wait_s", 0.0)),
+            )
+            observation = dict(client.connect().get("observation") or {})
+            runtime = BrainRuntime(client)
         for group in groups:
             shards = group["shards"]
             first = shards[0]
             num_envs = max(len(shard["jobs"]) for shard in shards)
             task_id = first["task_id"]
             scene_id = first["scene_id"]
-            print(f"[INFO] scene {task_id} / {scene_id}", flush=True)
+            print(f"[INFO] scene {task_id} / {scene_id} ({num_envs} envs)", flush=True)
+            extra = {"observation": observation} if observation and _accepts(cfg_cls, "observation") else {}
             cfg = cfg_cls(
                 task_id=first["task_id"],
                 scene=first["scene_id"],
@@ -70,18 +85,11 @@ def main() -> None:
                 pose_jitter_m=first["pose_jitter_m"],
                 env_id=payload.get("benchmark_env_id"),
                 num_envs=num_envs,
+                **extra,
             )
             env = gym.make(payload["task_name"], cfg=cfg)
             unwrapped = env.unwrapped
-            if payload.get("runtime") == "brain":
-                if runtime is None:
-                    from eval_nav.runtime.brain import BrainRuntime
-                    from nepher_brain_comm.client import BrainClient
-
-                    client = BrainClient(payload["socket"], timeout_s=float(payload["step_timeout_s"]))
-                    client.connect()
-                    runtime = BrainRuntime(client)
-            else:
+            if payload.get("runtime") != "brain":
                 from eval_nav.runtime.in_process import InProcessRuntime
                 from eval_nav.utils.policy_loader import load_policy_from_checkpoint
 
@@ -126,4 +134,13 @@ def _shard(payload: dict) -> Shard:
         variant=payload["variant"],
         pose_jitter_m=payload["pose_jitter_m"],
         jobs=jobs,
+        pack=payload.get("pack", ""),
     )
+
+
+def _accepts(builder, name: str) -> bool:
+    """Whether a cfg builder declares a keyword, so tasks without it are called as before."""
+    try:
+        return name in inspect.signature(builder).parameters
+    except (TypeError, ValueError):
+        return False

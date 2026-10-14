@@ -12,13 +12,14 @@ the config says ``runtime: brain``.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -27,7 +28,8 @@ import yaml
 from eval_nav.benchmark.aggregate import score_records, write_outputs
 from eval_nav.benchmark.expand import expand, make_shards
 from eval_nav.benchmark.manifest import load_manifest
-from eval_nav.benchmark.scheduler import assign_groups, batch_groups, group_shards, plan_slots
+from eval_nav.benchmark.packing import pack_key_for
+from eval_nav.benchmark.scheduler import UnitFailed, group_shards, plan_slots, plan_units, run_queue
 from eval_nav.domain.config import EvalConfig
 
 
@@ -47,6 +49,7 @@ def main(argv: list[str] | None = None) -> None:
     output_dir = _output_dir(args.output_dir, config.log_dir)
     started = time.perf_counter()
     records = run_workers(config, manifest, output_dir)
+    print(wall_summary(records), flush=True)
     max_steps = config.max_episode_steps or 1
     score, metrics, report = score_records(
         records,
@@ -88,6 +91,21 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  - Result copy: {target}")
 
 
+def wall_summary(records: list[dict]) -> str:
+    """Seconds spent per phase, summed over shards. Records of one shard share a ``wall`` entry."""
+    shards: dict[str, dict] = {}
+    for record in records:
+        wall = record.get("wall")
+        if wall:
+            shards.setdefault(str(wall.get("shard")), wall)
+    totals = {"reset_s": 0.0, "obs_s": 0.0, "brain_wait_s": 0.0, "step_s": 0.0}
+    for wall in shards.values():
+        for key in totals:
+            totals[key] += float(wall.get(key, 0.0))
+    parts = ", ".join(f"{key[:-2]} {value:.1f}s" for key, value in totals.items())
+    return f"[INFO] Worker seconds over {len(shards)} shard runs: {parts}."
+
+
 def run_directory(log_dir: Path, timestamp: datetime | None = None) -> Path:
     """Create ``log_dir/eval_run_YYYYMMDD_HHMMSS``, matching the checkpoint evaluator."""
     stamp = (timestamp or datetime.now()).strftime("%Y%m%d_%H%M%S")
@@ -114,46 +132,48 @@ def _write_config(output_dir: Path, config: EvalConfig) -> None:
 
 
 def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
-    """Expand, schedule, and collect JSONL records."""
-    shards = make_shards(expand(manifest, config.num_episodes), manifest.shard_size)
+    """Expand, schedule, and collect JSONL records.
+
+    Units of work sit in one queue. Each GPU takes the next unit when it is idle,
+    so a slow scene does not hold up the others.
+    """
+    jobs = expand(manifest, config.num_episodes)
+    shards = make_shards(jobs, manifest.shard_size, pack_key_for(manifest))
     groups = group_shards(shards)
     placement = str((config.brain or {}).get("placement", "paired"))
     slots = plan_slots(placement)
-    buckets = assign_groups(groups, len(slots))
+    units = plan_units(groups, len(slots))
     output_dir.mkdir(parents=True, exist_ok=True)
-    active = [(slot, bucket) for slot, bucket in zip(slots, buckets) if bucket]
-    replicas = max((slot.brain_index for slot, _bucket in active), default=0) + 1
-    devices = ", ".join(slot.device_id for slot, _bucket in active)
-    print(f"[INFO] Isaac workers: {len(active)} on GPU {devices}. Brain replicas: {replicas}.", flush=True)
+    active = slots[: len(units)]
+    replicas = max((slot.brain_index for slot in active), default=0) + 1
+    devices = ", ".join(slot.device_id for slot in active)
+    print(
+        f"[INFO] Isaac workers: {len(active)} on GPU {devices}. Brain replicas: {replicas}. "
+        f"{len(groups)} scene builds in {len(units)} units for {len(jobs)} episodes.",
+        flush=True,
+    )
+    counter = itertools.count()
+    counter_lock = threading.Lock()
 
-    def run_bucket(index: int, slot, bucket: list) -> list[dict]:
-        return _run_bucket(config, bucket, output_dir / f"gpu{index}.jsonl", slot)
+    def run_unit(slot, unit, attempt: int) -> list[dict]:
+        with counter_lock:
+            number = next(counter)
+        return _run_process(config, unit, output_dir / f"gpu{slot.device_id}-{number:03d}.jsonl", slot)
 
-    records: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, len(active))) as pool:
-        futures = [
-            pool.submit(run_bucket, index, slot, bucket) for index, (slot, bucket) in enumerate(active)
-        ]
-        for future in futures:
-            records.extend(future.result())
-    return records
-
-
-def _run_bucket(config: EvalConfig, bucket, output_path: Path, slot) -> list[dict]:
-    """Several Isaac processes for this GPU. Each one is closed before the camera graph fills up."""
-    records: list[dict] = []
-    for batch_index, batch in enumerate(batch_groups(bucket)):
-        part = output_path.with_name(f"{output_path.stem}-{batch_index:02d}{output_path.suffix}")
-        records.extend(_run_process(config, batch, part, slot))
-    return records
+    return run_queue(active, units, run_unit)
 
 
 def _run_process(config: EvalConfig, bucket, output_path: Path, slot) -> list[dict]:
-    """One Isaac process for one batch of scene groups."""
+    """One Isaac process for one unit of scene groups.
+
+    Raises:
+        UnitFailed: The process failed. The exception carries the groups it finished.
+    """
     payload = {
         "device": "cuda:0",
         "visible_device": slot.device_id,
         "socket": str(Path(config.brain["socket_dir"]) / f"brain-{slot.brain_index}.sock") if config.brain else "",
+        "connect_wait_s": float(config.brain.get("connect_wait_s", 120)) if config.brain else 0.0,
         "task_module": config.task_module,
         "task_name": config.task_name,
         "cfg_entry": (config.env_config or {}).get("cfg_entry"),
@@ -181,13 +201,30 @@ def _run_process(config: EvalConfig, bucket, output_path: Path, slot) -> list[di
         )
     finally:
         group_path.unlink(missing_ok=True)
+    records = _read_records(output_path)
     if completed.returncode != 0 or not output_path.is_file():
         task_id = bucket[0][0].task_id if bucket else "unknown"
-        raise RuntimeError(
+        raise UnitFailed(
             f"evaluation worker failed for GPU {slot.device_id} with code {completed.returncode} "
-            f"starting at {task_id}"
+            f"starting at {task_id}",
+            records,
         )
-    return [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return records
+
+
+def _read_records(path: Path) -> list[dict]:
+    """Records of the groups a worker finished. A missing file or a torn last line is skipped."""
+    if not path.is_file():
+        return []
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            break
+    return records
 
 
 def _step_cap(config: EvalConfig) -> int:
@@ -202,6 +239,7 @@ def _shard_payload(shard) -> dict:
         "composer": shard.composer,
         "variant": shard.variant,
         "pose_jitter_m": shard.pose_jitter_m,
+        "pack": shard.pack,
         "jobs": [
             {
                 "job_id": job.job_id,
