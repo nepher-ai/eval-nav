@@ -663,6 +663,86 @@ def test_pack_by_none_keeps_one_build_per_task(tmp_path: Path):
     assert len(group_shards(make_shards(expand(manifest), 4))) == 4
 
 
+def _background_manifest(tmp_path: Path, shard_size: int, counts: dict[str, int]):
+    success = {"op": "in_container", "objects": ["banana"], "container": "bowl"}
+    tasks = []
+    for background, count in counts.items():
+        for index in range(count):
+            name = f"{background}_{index}"
+            tasks.append({"task_id": name, "scene": "s", "instruction": f"do {name}", "success": success})
+            # Every task has its own mesh, so no two build the same stage.
+            placements = [{"slot": "banana", "kind": "item", "usd": f"{name}.usd", "position_m": [0.3, 0.0, 0.0]}]
+            _scene_file(tmp_path, name, "s", background=background, placements=placements)
+    data = {"version": "v", "shard_size": shard_size, "seed_salt": "x", "pack_by": "background", "tasks": tasks}
+    return manifest_from_dict(data, bundle_dir=tmp_path)
+
+
+def test_background_pack_runs_different_objects_in_balanced_shards(tmp_path: Path):
+    from eval_nav.benchmark.packing import pack_key_for
+
+    manifest = _background_manifest(tmp_path, 4, {"home_office": 10, "billiard_hall": 3})
+    shards = make_shards(expand(manifest), manifest.shard_size, pack_key_for(manifest), mixed=True)
+    sizes = {}
+    for shard in shards:
+        assert shard.mixed
+        assert len({job.task_id for job in shard.jobs}) == len(shard.jobs)
+        sizes.setdefault(shard.jobs[0].task_id.rsplit("_", 1)[0], []).append(len(shard.jobs))
+    assert sizes == {"home_office": [4, 3, 3], "billiard_hall": [3]}
+    # Each shard has its own objects, so each is its own scene build.
+    groups = group_shards(shards)
+    assert len(groups) == len(shards) == 4
+    assert all(len(group) == 1 for group in groups)
+    assert sum(len(shard.jobs) for shard in shards) == 13
+
+
+def test_background_pack_does_not_depend_on_gpu_count(tmp_path: Path):
+    from eval_nav.benchmark.packing import pack_key_for
+
+    manifest = _background_manifest(tmp_path, 16, {"home_office": 40})
+    shards = make_shards(expand(manifest), manifest.shard_size, pack_key_for(manifest), mixed=True)
+    assert [len(shard.jobs) for shard in shards] == [14, 13, 13]
+    expected = sorted(job.job_id for shard in shards for job in shard.jobs)
+    for workers in (1, 2, 5):
+        units = plan_units(group_shards(shards), workers)
+        assert sorted(_job_ids_of(units)) == expected
+
+
+def test_mixed_shards_need_a_pack_key():
+    import pytest
+
+    with pytest.raises(ValueError):
+        make_shards([], 4, None, mixed=True)
+
+
+def test_mixed_flag_reaches_the_worker():
+    from eval_nav.benchmark.expand import EpisodeJob, Shard
+    from eval_nav.benchmark.orchestrate import _shard_payload
+    from eval_nav.benchmark.worker import _shard
+
+    job = EpisodeJob(
+        job_id="j", task_id="t", scene_id="s", composer="s", variant="nominal", pose_jitter_m=0.0,
+        instruction_id="i", episode_index=0, seed=1,
+    )
+    shard = Shard("t", "s", "s", "nominal", 0.0, (job,), pack="home_office#0", mixed=True)
+    assert _shard(json.loads(json.dumps(_shard_payload(shard)))) == shard
+
+
+def test_v11_scenes_pack_by_background_into_nine_builds():
+    import pytest
+
+    from eval_nav.benchmark.packing import pack_key_for
+
+    root = SOURCE / "envhub" / "environments" / "franka-tabletop-v11"
+    if not (root / "benchmark.yaml").is_file():
+        pytest.skip("franka-tabletop-v11 is not checked out")
+    manifest = load_manifest(root / "benchmark.yaml")
+    manifest.pack_by = "background"
+    manifest.shard_size = 16
+    shards = make_shards(expand(manifest), manifest.shard_size, pack_key_for(manifest), mixed=True)
+    assert sorted(len(shard.jobs) for shard in shards) == [12, 12, 12, 13, 13, 14, 14, 15, 15]
+    assert len(group_shards(shards)) == 9
+
+
 def test_signature_ignores_poses_and_tracks_assets(tmp_path: Path):
     from eval_nav.benchmark.packing import scene_signature
 

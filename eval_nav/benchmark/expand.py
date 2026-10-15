@@ -43,6 +43,8 @@ class Shard:
     jobs: tuple[EpisodeJob, ...]
     pack: str = ""
     """Stage signature when jobs of several tasks share one environment. Empty otherwise."""
+    mixed: bool = False
+    """The jobs may differ in surface and objects. The environment is built for these jobs, env by env."""
 
     @property
     def group_key(self) -> tuple[str, str, str]:
@@ -98,6 +100,7 @@ def make_shards(
     jobs: list[EpisodeJob],
     shard_size: int,
     pack_key: Callable[[EpisodeJob], str] | None = None,
+    mixed: bool = False,
 ) -> list[Shard]:
     """Pack jobs into fixed-size shards inside each group.
 
@@ -105,11 +108,17 @@ def make_shards(
     returns the same key and variant, whatever its task, so one environment serves
     them all. Group order follows the first job of each group, and job order
     inside a group follows expansion order, so neither depends on GPU count.
+
+    With ``mixed`` the jobs of a group need not build the same stage. A group of ``n`` jobs
+    becomes ``ceil(n / shard_size)`` shards of nearly equal size, and every shard is its own
+    environment, because its objects differ from the others'.
     """
     if shard_size < 1:
         raise ValueError("shard_size must be >= 1")
+    if mixed and pack_key is None:
+        raise ValueError("mixed shards need a pack key")
     if pack_key is not None:
-        return _make_packed_shards(jobs, shard_size, pack_key)
+        return _make_packed_shards(jobs, shard_size, pack_key, mixed)
     shards: list[Shard] = []
     group: list[EpisodeJob] = []
     for job in jobs:
@@ -127,14 +136,43 @@ def make_shards(
 
 
 def _make_packed_shards(
-    jobs: list[EpisodeJob], shard_size: int, pack_key: Callable[[EpisodeJob], str]
+    jobs: list[EpisodeJob], shard_size: int, pack_key: Callable[[EpisodeJob], str], mixed: bool = False
 ) -> list[Shard]:
     groups: dict[tuple[str, str], list[EpisodeJob]] = {}
     for job in jobs:
         groups.setdefault((pack_key(job), job.variant), []).append(job)
     shards: list[Shard] = []
     for (signature, _variant), group in groups.items():
-        shards.extend(_pack(group, shard_size, pack=signature))
+        if mixed:
+            shards.extend(_pack_balanced(group, shard_size, signature))
+        else:
+            shards.extend(_pack(group, shard_size, pack=signature))
+    return shards
+
+
+def _pack_balanced(jobs: list[EpisodeJob], shard_size: int, key: str) -> list[Shard]:
+    """Split a group into the fewest shards of at most ``shard_size`` jobs, sizes within one of each other."""
+    count = -(-len(jobs) // shard_size)
+    base, extra = divmod(len(jobs), count)
+    shards = []
+    start = 0
+    for index in range(count):
+        chunk = tuple(jobs[start : start + base + (1 if index < extra else 0)])
+        start += len(chunk)
+        first = chunk[0]
+        shards.append(
+            Shard(
+                task_id=first.task_id,
+                scene_id=first.scene_id,
+                composer=first.composer,
+                variant=first.variant,
+                pose_jitter_m=first.pose_jitter_m,
+                jobs=chunk,
+                # Each shard has its own objects, so no two share an environment.
+                pack=f"{key}#{index}",
+                mixed=True,
+            )
+        )
     return shards
 
 

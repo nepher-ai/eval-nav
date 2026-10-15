@@ -50,6 +50,18 @@ def scene_signature(bundle_dir: str | Path, task_id: str, scene_id: str) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
+def scene_background(bundle_dir: str | Path, task_id: str, scene_id: str) -> str:
+    """Name of the background a scene file picks, or ``default`` when it leaves the stage default.
+
+    Raises:
+        FileNotFoundError: The bundle has no scene file for this task and scene.
+    """
+    path = Path(bundle_dir) / "scenes" / f"{task_id}-{scene_id}.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"benchmark has no scene {task_id}-{scene_id} under {bundle_dir}")
+    return str(json.loads(path.read_text(encoding="utf-8")).get("background") or "default")
+
+
 def pack_key_for(manifest: BenchmarkManifest) -> Callable[[EpisodeJob], str] | None:
     """Pack key function for a manifest, or ``None`` when it does not pack.
 
@@ -60,12 +72,13 @@ def pack_key_for(manifest: BenchmarkManifest) -> Callable[[EpisodeJob], str] | N
     if manifest.bundle_dir is None:
         raise ValueError("pack_by needs the bundle directory that holds the scene files")
     bundle_dir = manifest.bundle_dir
+    describe = scene_background if manifest.pack_by == "background" else scene_signature
     cache: dict[tuple[str, str], str] = {}
 
     def key(job: EpisodeJob) -> str:
         pair = (job.task_id, job.scene_id)
         if pair not in cache:
-            cache[pair] = scene_signature(bundle_dir, *pair)
+            cache[pair] = describe(bundle_dir, *pair)
         return cache[pair]
 
     return key

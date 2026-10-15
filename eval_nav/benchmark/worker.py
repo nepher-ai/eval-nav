@@ -77,6 +77,11 @@ def main() -> None:
             scene_id = first["scene_id"]
             print(f"[INFO] scene {task_id} / {scene_id} ({num_envs} envs)", flush=True)
             extra = {"observation": observation} if observation is not None and _accepts(cfg_cls, "observation") else {}
+            if first.get("mixed"):
+                if not _accepts(cfg_cls, "scenes"):
+                    raise RuntimeError(f"{payload['cfg_entry']} cannot build a stage with different objects per env")
+                # The stage is built for these jobs, env by env.
+                extra["scenes"] = [(job["task_id"], job["scene_id"]) for job in first["jobs"]]
             cfg = cfg_cls(
                 task_id=first["task_id"],
                 scene=first["scene_id"],
@@ -135,6 +140,7 @@ def _shard(payload: dict) -> Shard:
         pose_jitter_m=payload["pose_jitter_m"],
         jobs=jobs,
         pack=payload.get("pack", ""),
+        mixed=bool(payload.get("mixed", False)),
     )
 
 

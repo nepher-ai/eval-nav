@@ -1,0 +1,36 @@
+# Franka tabletop benchmark v13: the v12 scenes and physics, with tasks grouped by background.
+# Tasks that share a background run side by side in one scene, whatever their table and objects
+# (benchmark.yaml: pack_by: background, shard_size: 16). Scores are not comparable with v12.
+# The phase bundle is hidden; this file only names it.
+
+task_name: "Nepher-FrankaTabletop-Envhub-Play-v0"
+task_module: "franka_tabletop.tasks"
+task_type: "manipulation.multitask"
+scoring_version: "v1"
+category: "manipulation"
+runtime: brain
+benchmark_env_id: "franka-tabletop-v13"
+enable_cameras: true
+
+env_config:
+  cfg_entry: "franka_tabletop.env_cfg:build_cfg"
+
+seeds:
+  - 1
+
+num_episodes: 1
+max_episode_steps: 600
+max_episode_time_s: 40.0
+
+log_dir: "logs/franka-tabletop-v13"
+enable_logging: false
+
+brain:
+  socket_dir: "/run/brain"
+  step_timeout_s: 60
+  open_loop_horizon: 8
+  # Wait this long for brain-<i>.sock, so the sandbox can start while weights load.
+  # The pi0.5 brain compiles three batch sizes before it listens.
+  connect_wait_s: 900
+  # paired: worker i and brain-i share GPU i. split: brains take the first half.
+  placement: paired

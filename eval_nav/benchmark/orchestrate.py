@@ -138,7 +138,7 @@ def run_workers(config: EvalConfig, manifest, output_dir: Path) -> list[dict]:
     so a slow scene does not hold up the others.
     """
     jobs = expand(manifest, config.num_episodes)
-    shards = make_shards(jobs, manifest.shard_size, pack_key_for(manifest))
+    shards = make_shards(jobs, manifest.shard_size, pack_key_for(manifest), mixed=manifest.pack_by == "background")
     groups = group_shards(shards)
     placement = str((config.brain or {}).get("placement", "paired"))
     slots = plan_slots(placement)
@@ -240,6 +240,7 @@ def _shard_payload(shard) -> dict:
         "variant": shard.variant,
         "pose_jitter_m": shard.pose_jitter_m,
         "pack": shard.pack,
+        "mixed": shard.mixed,
         "jobs": [
             {
                 "job_id": job.job_id,

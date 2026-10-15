@@ -75,12 +75,14 @@ class BenchmarkManifest:
     tasks: list[TaskRequest] = field(default_factory=list)
     pack_by: str = "none"
     """``none`` builds one environment per (task, scene, variant). ``assets`` runs every task that
-    builds the same Isaac stage in one environment, up to ``shard_size`` episodes at a time."""
+    builds the same Isaac stage in one environment, up to ``shard_size`` episodes at a time.
+    ``background`` runs every task with the same background in one environment, whatever its
+    surface and objects, in balanced shards of at most ``shard_size`` episodes."""
     bundle_dir: Path | None = None
     """Directory that holds ``benchmark.yaml`` and the scene files. Set by :func:`load_manifest`."""
 
 
-PACK_MODES = ("none", "assets")
+PACK_MODES = ("none", "assets", "background")
 
 
 def load_manifest(path: str | Path) -> BenchmarkManifest:
