@@ -48,6 +48,8 @@ def _mode(argv: list[str]) -> str:
 
 def _run_checkpoint() -> None:
     """Start Isaac Sim and evaluate an in-process checkpoint."""
+    from eval_nav.benchmark.worker import apply_overview_spectator
+
     from isaaclab.app import AppLauncher
 
     parser = argparse.ArgumentParser(
@@ -67,6 +69,7 @@ def _run_checkpoint() -> None:
     # Lab 3 dropped the --enable_cameras flag. The launcher still reads the attribute.
     if _config_enables_cameras(args_cli.config):
         args_cli.enable_cameras = True
+    apply_overview_spectator(args_cli)
 
     app_launcher = AppLauncher(args_cli)
     simulation_app = app_launcher.app

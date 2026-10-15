@@ -17,6 +17,22 @@ from pathlib import Path
 from eval_nav.benchmark.expand import EpisodeJob, Shard
 
 
+def apply_overview_spectator(args_cli) -> None:
+    """Ask Kit to draw every environment into an unpartitioned camera.
+
+    The tabletop shard cameras need this, and RTX only honors it when the flag is
+    present before the app starts. Other tasks do not ship the helper.
+    """
+    try:
+        from franka_tabletop.core.overview import with_spectator_kit_args
+    except ImportError:
+        return
+    current = getattr(args_cli, "kit_args", None)
+    updated = with_spectator_kit_args(current)
+    if updated != current:
+        args_cli.kit_args = updated
+
+
 def main() -> None:
     """Start Isaac Sim once and run every group assigned to this GPU."""
     from isaaclab.app import AppLauncher
@@ -37,6 +53,7 @@ def main() -> None:
     # Lab 3 dropped the --enable_cameras flag. The launcher still reads the attribute.
     if payload.get("enable_cameras"):
         args_cli.enable_cameras = True
+    apply_overview_spectator(args_cli)
 
     app_launcher = AppLauncher(args_cli)
     simulation_app = app_launcher.app
