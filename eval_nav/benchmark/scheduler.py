@@ -75,12 +75,15 @@ def _nvidia_gpu_count() -> int:
     return count or 1
 
 
-# One Kit process dies in the camera graph after about ten scene rebuilds (exit 139).
-GROUPS_PER_PROCESS = 8
+# A packed scene plus the brain replica filled about 35 GB of a 48 GB GPU. The next
+# scene in that same Kit process is not released, and PhysX then fails with CUDA
+# error 2 (out of memory). One scene per process frees the device. Rebuilding past
+# about ten scenes in one process also kills Kit in the camera graph (exit 139).
+GROUPS_PER_PROCESS = 1
 
 
 def batch_groups(groups: list, limit: int = GROUPS_PER_PROCESS) -> list[list]:
-    """Split groups so each Isaac process rebuilds the camera graph fewer than ten times."""
+    """Split groups so each Isaac process builds ``limit`` scenes and then exits."""
     if limit < 1:
         raise ValueError("limit must be >= 1")
     return [groups[start : start + limit] for start in range(0, len(groups), limit)]
@@ -119,7 +122,7 @@ def plan_units(groups: list[list[Shard]], workers: int, limit: int = GROUPS_PER_
 
     A unit is what one Isaac process runs. It is small enough that every worker
     gets about :data:`UNITS_PER_WORKER` of them, and never more than ``limit``
-    groups, so the camera graph is rebuilt fewer than ten times per process.
+    groups. ``limit`` is 1, so the process exits after one scene and frees the GPU.
     Which worker runs which unit is decided at run time, so the plan does not
     depend on the GPU count except through the unit size.
     """

@@ -131,11 +131,11 @@ def test_shards_stay_inside_one_group():
     assert sum(len(shard.jobs) for shard in shards) == 8
 
 
-def test_scene_rebuilds_stay_under_the_camera_graph_limit():
+def test_each_process_builds_one_scene():
     groups = list(range(10))
     batches = batch_groups(groups)
-    assert GROUPS_PER_PROCESS < 10
-    assert [len(batch) for batch in batches] == [GROUPS_PER_PROCESS, 10 - GROUPS_PER_PROCESS]
+    assert GROUPS_PER_PROCESS == 1
+    assert [len(batch) for batch in batches] == [1] * len(groups)
     assert [item for batch in batches for item in batch] == groups
 
 
