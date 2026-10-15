@@ -53,7 +53,7 @@ def main() -> None:
     groups = payload.get("groups") or [{"shards": payload["shards"]}]
     client = None
     runtime = None
-    observation: dict = {}
+    observation: dict | None = None
     output = Path(args_cli.output)
     output.write_text("", encoding="utf-8")
     try:
@@ -76,7 +76,7 @@ def main() -> None:
             task_id = first["task_id"]
             scene_id = first["scene_id"]
             print(f"[INFO] scene {task_id} / {scene_id} ({num_envs} envs)", flush=True)
-            extra = {"observation": observation} if observation and _accepts(cfg_cls, "observation") else {}
+            extra = {"observation": observation} if observation is not None and _accepts(cfg_cls, "observation") else {}
             cfg = cfg_cls(
                 task_id=first["task_id"],
                 scene=first["scene_id"],
