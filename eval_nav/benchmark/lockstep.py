@@ -217,7 +217,12 @@ def _snapshot_obs(obs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
 
 
 def _set_render(env: StepEnv, enabled: bool) -> None:
-    """Turn RTX cameras on only for the step whose image will be sent to the brain."""
+    """Turn RTX cameras on only for the step whose image will be sent to the brain.
+
+    An environment that sets ``record_video`` renders every step, so its shard video advances.
+    """
+    if getattr(env, "record_video", False):
+        enabled = True
     if hasattr(env, "render_enabled"):
         env.render_enabled = enabled
 

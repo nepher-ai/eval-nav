@@ -470,6 +470,15 @@ def test_next_brain_call_overlaps_open_loop_steps():
     assert any(env.renders)
 
 
+def test_a_recording_env_renders_on_every_step():
+    shard = make_shards(expand(manifest_from_dict(MANIFEST)), 1)[0]
+    env = _ClockEnv(len(shard.jobs))
+    env.record_video = True
+    run_shard(env, _ClockRuntime(), shard, open_loop_horizon=4, max_steps=8)
+    assert env.renders
+    assert all(env.renders)
+
+
 def test_brain_runtime_against_zero_brain(tmp_path: Path):
     import argparse
 
