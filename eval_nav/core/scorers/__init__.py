@@ -39,6 +39,9 @@ Manipulation
            episode = 0.70 × progress + 0.30 × terminal × quality;
            quality = 0.70 × speed + 0.30 × smoothness, or speed when SPARC is missing
 
+``manipulation.multitask.rl`` — in-process learned policies on the same benchmark
+    - v1 : mean over tasks of mean episode score; episode = success * (0.75 + 0.25 * speed)
+
 Usage
 -----
     from eval_nav.core.scorers import get_scorer
@@ -52,6 +55,7 @@ from __future__ import annotations
 
 from .base import BaseScorer
 from .manipulation.multitask import MultitaskScorer
+from .manipulation.multitask_rl import MultitaskRLScorer
 from .manipulation.pick_place import PickPlaceScorer, PickPlaceScorerV2
 from .navigation.go2_maze import Go2MazeScorer
 from .navigation.humanoid import HumanoidRaceScorer
@@ -72,6 +76,7 @@ __all__ = [
     "SpotWaypointScorer",
     "SpotGoalScorerV3",
     "SpotGoalScorerV4",
+    "MultitaskRLScorer",
     "MultitaskScorer",
     "PickPlaceScorer",
     "PickPlaceScorerV2",
@@ -97,6 +102,7 @@ REGISTRY: dict[tuple[str, str], type[BaseScorer]] = {
     ("manipulation.pick_place", "v1"): PickPlaceScorer,
     ("manipulation.pick_place", "v2"): PickPlaceScorerV2,
     ("manipulation.multitask", "v1"): MultitaskScorer,
+    ("manipulation.multitask.rl", "v1"): MultitaskRLScorer,
 }
 
 VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
@@ -107,6 +113,7 @@ VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
     "manipulation.multitask": ["v1"],
+    "manipulation.multitask.rl": ["v1"],
 }
 
 SUPPORTED_TASK_TYPES: tuple[str, ...] = tuple(VALID_VERSIONS_PER_TASK_TYPE.keys())

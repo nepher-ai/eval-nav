@@ -25,6 +25,7 @@ _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
     "manipulation.multitask": ["v1"],
+    "manipulation.multitask.rl": ["v1"],
 }
 
 
@@ -70,6 +71,8 @@ class EvalConfig:
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
     | manipulation.multitask    | v1       | 0.70 × progress + 0.30 × finish quality |
+    +---------------------------+----------+-----------------------------------------+
+    | manipulation.multitask.rl | v1       | success * (0.75 + 0.25 * speed)         |
     +---------------------------+----------+-----------------------------------------+
     """
 
