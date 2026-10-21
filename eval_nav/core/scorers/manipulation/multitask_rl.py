@@ -16,26 +16,24 @@ Without a time budget, ``T`` is the step count and ``T_budget`` is ``max_episode
 episode scores 0. An episode's task is its ``scene`` name. The task score is the mean episode
 score, and the suite score is the unweighted mean of the task scores.
 
-An env_scene named ``all`` runs every task of the bundle in one stage. Env ``i`` runs task ``i % T`` of
-``benchmark.yaml`` and the runner numbers episodes ``run * num_envs + i``, where ``num_envs`` is a multiple
-of the task count ``T``. So the task of episode ``n`` is task ``n % T``. Use ``all`` as the only env_scene,
-because the episode numbers of several env_scenes continue each other.
+When one scene runs several tasks, the task module's ``tasks_of_scene`` lists them in env order. The
+runner numbers episodes ``run * num_envs + i`` and ``num_envs`` is a multiple of that count, so episode
+``n`` runs task ``n % T``. Keep that scene as the only env_scene, because episode numbers of several
+env_scenes continue each other. A scene the module does not split is scored under its own name.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+import importlib
 from typing import Any
 
 import numpy as np
-import yaml
 
 from ....domain.metrics import AggregateMetrics, EpisodeMetrics
 from ..base import BaseScorer
 
 _W_SUCCESS = 0.75
 _W_SPEED = 0.25
-_ALL_SCENES = "all"
 
 
 class MultitaskRLScorer(BaseScorer):
@@ -47,6 +45,7 @@ class MultitaskRLScorer(BaseScorer):
         self.time_budget_s: float | None = None
         self.task_rates: dict[str, float] = {}
         self.tasks: dict[str, dict[str, Any]] = {}
+        self.task_module: str | None = None
 
     def compute_score(
         self,
@@ -63,9 +62,8 @@ class MultitaskRLScorer(BaseScorer):
 
         scores: dict[str, list[float]] = {}
         successes: dict[str, int] = {}
-        bundle_tasks: dict[str, list[str]] = {}
         for episode in episodes or []:
-            task = _task_of(episode, bundle_tasks)
+            task = _task_of(episode, self.task_module)
             scores.setdefault(task, []).append(_episode_score(episode, budget, use_steps=use_steps))
             successes[task] = successes.get(task, 0) + int(episode.success)
 
@@ -95,23 +93,22 @@ class MultitaskRLScorer(BaseScorer):
         }
 
 
-def _bundle_dir(env_id: str) -> Path:
-    """Directory of the cached EnvHub bundle ``env_id``."""
-    from nepher.storage.cache import get_cache_manager
+def _scene_tasks(task_module: str | None, env_id: str | None, scene: str) -> list[str] | None:
+    """Task ids ``task_module`` assigns to ``scene``. None when it does not split the scene."""
+    if not task_module or env_id is None:
+        return None
+    declare = getattr(importlib.import_module(task_module), "tasks_of_scene", None)
+    if declare is None:
+        return None
+    declared = declare(env_id, scene)
+    return [str(task) for task in declared] if declared else None
 
-    return get_cache_manager(category="manipulation").get_env_cache_path(env_id)
 
-
-def _task_of(episode: EpisodeMetrics, bundle_tasks: dict[str, list[str]]) -> str:
-    """Task id of an episode. ``bundle_tasks`` caches the task order of each bundle read."""
-    if str(episode.scene) != _ALL_SCENES:
+def _task_of(episode: EpisodeMetrics, task_module: str | None) -> str:
+    """Task id of an episode: its scene name, or task ``episode_id % T`` when the scene runs ``T`` tasks."""
+    tasks = _scene_tasks(task_module, episode.env_id, str(episode.scene))
+    if not tasks or tasks == [str(episode.scene)]:
         return str(episode.scene)
-    if episode.env_id is None:
-        raise ValueError("an episode of the all-tasks scene needs its env_id to find the benchmark tasks")
-    if episode.env_id not in bundle_tasks:
-        benchmark = yaml.safe_load((_bundle_dir(episode.env_id) / "benchmark.yaml").read_text(encoding="utf-8"))
-        bundle_tasks[episode.env_id] = [str(task["task_id"]) for task in benchmark["tasks"]]
-    tasks = bundle_tasks[episode.env_id]
     return tasks[episode.episode_id % len(tasks)]
 
 

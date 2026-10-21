@@ -72,13 +72,13 @@ def test_step_budget_is_used_without_a_time_budget():
     assert scorer.to_dict()["time_budget_s"] is None
 
 
-def test_all_scene_episodes_map_to_tasks_by_episode_id(tmp_path, monkeypatch):
-    (tmp_path / "benchmark.yaml").write_text("tasks:\n- task_id: a\n- task_id: b\n- task_id: c\n", encoding="utf-8")
-    monkeypatch.setattr(multitask_rl, "_bundle_dir", lambda env_id: tmp_path)
+def test_a_scene_that_runs_several_tasks_maps_episodes_by_id(monkeypatch):
+    # The task module, not this package, decides that one scene runs tasks a, b and c in env order.
+    monkeypatch.setattr(multitask_rl, "_scene_tasks", lambda task_module, env_id, scene: ["a", "b", "c"])
     # Six envs run the three tasks twice per run, and a second run follows.
     outcomes = [True, False, True, True, False, False] + [True] * 6
     episodes = [
-        _episode("all", success, completion_time=20.0, episode_id=index, env_id="bundle")
+        _episode("stage", success, completion_time=20.0, episode_id=index, env_id="bundle")
         for index, success in enumerate(outcomes)
     ]
     score, scorer = _score(episodes, max_episode_time_s=40.0)

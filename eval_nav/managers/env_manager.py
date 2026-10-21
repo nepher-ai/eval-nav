@@ -21,9 +21,6 @@ import gymnasium as gym
 from ..domain.config import EvalConfig
 from ..domain.errors import EnvironmentError
 
-ALL_SCENES = "all"
-"""Scene name of a task whose one stage holds every scene of the bundle. It is not a bundle scene."""
-
 
 class EnvironmentManager:
     """Manages environment lifecycle for navigation evaluation."""
@@ -35,6 +32,7 @@ class EnvironmentManager:
             config: Evaluation configuration.
         """
         self.config = config
+        self._task_module = None
     
     def import_task_module(self) -> None:
         """Import the task module to ensure environment registration.
@@ -50,6 +48,7 @@ class EnvironmentManager:
                 module = importlib.import_module(self.config.task_module)
                 if module is None:
                     raise ImportError(f"Failed to import module: {self.config.task_module}")
+                self._task_module = module
                 return
             except ImportError as e:
                 raise EnvironmentError(
@@ -94,6 +93,16 @@ class EnvironmentManager:
                 },
             )
     
+    def _tasks_of_scene(self, env_id: str, scene: str | int) -> list[str] | None:
+        """Task ids the task module assigns to ``scene``. None when the module does not own it."""
+        if isinstance(scene, int) or self._task_module is None:
+            return None
+        declare = getattr(self._task_module, "tasks_of_scene", None)
+        if declare is None:
+            return None
+        declared = declare(env_id, scene)
+        return [str(task) for task in declared] if declared else None
+
     def verify_scenes_available(self) -> None:
         """Verify that all required scenes are available in the navigation environments.
         
@@ -127,7 +136,8 @@ class EnvironmentManager:
                 
                 missing_scenes = []
                 for scene in scenes:
-                    if scene == ALL_SCENES:
+                    # A task module may own scene ids that are not bundle scenes. It names them.
+                    if self._tasks_of_scene(env_id, scene):
                         continue
                     if isinstance(scene, int):
                         if scene not in available_scenes:
