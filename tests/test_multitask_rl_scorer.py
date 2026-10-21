@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from eval_nav.core.scorers import get_scorer
-from eval_nav.core.scorers.manipulation import multitask_rl
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
 
@@ -26,6 +25,7 @@ def _episode(
     completion_time: float | None = None,
     episode_id: int = 0,
     env_id: str | None = None,
+    task_id: str | None = None,
 ) -> EpisodeMetrics:
     return EpisodeMetrics(
         episode_id=episode_id,
@@ -36,6 +36,7 @@ def _episode(
         timeout=not success,
         env_id=env_id,
         completion_time=completion_time if success else None,
+        task_id=task_id,
     )
 
 
@@ -72,13 +73,19 @@ def test_step_budget_is_used_without_a_time_budget():
     assert scorer.to_dict()["time_budget_s"] is None
 
 
-def test_a_scene_that_runs_several_tasks_maps_episodes_by_id(monkeypatch):
-    # The task module, not this package, decides that one scene runs tasks a, b and c in env order.
-    monkeypatch.setattr(multitask_rl, "_scene_tasks", lambda task_module, env_id, scene: ["a", "b", "c"])
-    # Six envs run the three tasks twice per run, and a second run follows.
+def test_a_scene_that_runs_several_tasks_uses_the_episode_task_id():
+    # The env records which task each episode ran. The scorer does not infer it from the episode number.
+    names = ["a", "b", "c"]
     outcomes = [True, False, True, True, False, False] + [True] * 6
     episodes = [
-        _episode("stage", success, completion_time=20.0, episode_id=index, env_id="bundle")
+        _episode(
+            "all",
+            success,
+            completion_time=20.0,
+            episode_id=index,
+            env_id="bundle",
+            task_id=names[index % 3],
+        )
         for index, success in enumerate(outcomes)
     ]
     score, scorer = _score(episodes, max_episode_time_s=40.0)
