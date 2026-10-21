@@ -1,8 +1,11 @@
 # Evaluation configuration for task-franka-tabletop-rl
 #
 # Runs the classical high-level planner, the learned end-effector tracker, and IK on the 16 Franka
-# tabletop tasks of the franka-tabletop-rl-v0 EnvHub bundle. Each env_scene names one task id,
-# and num_envs jittered layouts of that task run in parallel. The tracker checkpoint is
+# tabletop tasks of the franka-tabletop-rl-v0 EnvHub bundle. The single env_scene "all" builds one
+# stage that holds every task of the bundle's benchmark.yaml. Env i runs task i % T, so num_envs must
+# be a multiple of the task count T (16, or 24 or 32 for a larger benchmark). One episode run plays
+# num_envs episodes, num_envs / T of each task, and num_episodes runs follow each other. The scorer
+# maps episode n to task n % T, so keep "all" as the only env_scene. The tracker checkpoint is
 # best_policy/best_policy.pt in the task project. Scores are not comparable with the brain
 # benchmarks (v11-v13): they use the in-process runner and manipulation.multitask.rl scoring.
 
@@ -13,28 +16,13 @@ task_type: "manipulation.multitask.rl"
 scoring_version: "v1"
 
 env_scenes:
-  - { env_id: "franka-tabletop-rl-v0", scene: "animals_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "apple_and_yogurt_in_bowl" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "bigger_object" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "blocks_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "clamp_in_right_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "cubes_and_blocks_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "foodpacking_1bin_1can" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "foodpacking_1bin_3can" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "red_dishes_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "red_items_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "rubiks_cubes_in_bin" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "smaller_object" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "throw_away_apple" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "throw_away_snacks" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "tool_organization" }
-  - { env_id: "franka-tabletop-rl-v0", scene: "wood_spatula_to_bowl" }
+  - { env_id: "franka-tabletop-rl-v0", scene: "all" }
 
 seeds:
   - 1
 
-num_episodes: 1
-num_envs: 16
+num_episodes: 4
+num_envs: 64
 max_episode_steps: 600
 max_episode_time_s: 40.0
 

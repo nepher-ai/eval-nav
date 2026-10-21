@@ -12,20 +12,29 @@ from pathlib import Path
 import pytest
 
 from eval_nav.core.scorers import get_scorer
+from eval_nav.core.scorers.manipulation import multitask_rl
 from eval_nav.domain.config import EvalConfig
 from eval_nav.domain.metrics import AggregateMetrics, EpisodeMetrics
 
 CONFIG = Path(__file__).resolve().parents[1] / "configs" / "task-franka-tabletop-rl.yaml"
 
 
-def _episode(scene: str, success: bool, steps: int = 300, completion_time: float | None = None) -> EpisodeMetrics:
+def _episode(
+    scene: str,
+    success: bool,
+    steps: int = 300,
+    completion_time: float | None = None,
+    episode_id: int = 0,
+    env_id: str | None = None,
+) -> EpisodeMetrics:
     return EpisodeMetrics(
-        episode_id=0,
+        episode_id=episode_id,
         scene=scene,
         seed=1,
         success=success,
         steps=steps,
         timeout=not success,
+        env_id=env_id,
         completion_time=completion_time if success else None,
     )
 
@@ -63,10 +72,24 @@ def test_step_budget_is_used_without_a_time_budget():
     assert scorer.to_dict()["time_budget_s"] is None
 
 
+def test_all_scene_episodes_map_to_tasks_by_episode_id(tmp_path, monkeypatch):
+    (tmp_path / "benchmark.yaml").write_text("tasks:\n- task_id: a\n- task_id: b\n- task_id: c\n", encoding="utf-8")
+    monkeypatch.setattr(multitask_rl, "_bundle_dir", lambda env_id: tmp_path)
+    # Six envs run the three tasks twice per run, and a second run follows.
+    outcomes = [True, False, True, True, False, False] + [True] * 6
+    episodes = [
+        _episode("all", success, completion_time=20.0, episode_id=index, env_id="bundle")
+        for index, success in enumerate(outcomes)
+    ]
+    score, scorer = _score(episodes, max_episode_time_s=40.0)
+    assert scorer.task_rates == {"a": 1.0, "b": 0.5, "c": 0.75}
+    assert {task: report["episodes"] for task, report in scorer.tasks.items()} == {"a": 4, "b": 4, "c": 4}
+    assert score == pytest.approx(0.875 * (1.0 + 0.5 + 0.75) / 3)
+
+
 def test_config_loads_and_validates():
     config = EvalConfig.from_yaml(CONFIG)
     config.validate()
     assert (config.task_type, config.scoring_version) == ("manipulation.multitask.rl", "v1")
-    assert len(config.env_scenes) == 16
-    assert len({scene["scene"] for scene in config.env_scenes}) == 16
-    assert {scene["env_id"] for scene in config.env_scenes} == {"franka-tabletop-rl-v0"}
+    assert config.env_scenes == [{"env_id": "franka-tabletop-rl-v0", "scene": "all"}]
+    assert config.num_envs % 16 == 0

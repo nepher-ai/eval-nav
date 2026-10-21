@@ -90,10 +90,15 @@ def test_authored_task_is_one_nominal_episode():
 
 
 def test_phase_bundles_are_sixteen_distinct_tasks():
+    import pytest
+
     root = SOURCE / "envhub" / "environments"
     seen: list[set[str]] = []
     for name in ("franka-tabletop-v0", "franka-tabletop-v1"):
-        manifest = load_manifest(root / name / "benchmark.yaml")
+        path = root / name / "benchmark.yaml"
+        if not path.is_file():
+            continue
+        manifest = load_manifest(path)
         jobs = expand(manifest)
         task_ids = {job.task_id for job in jobs}
         assert len(jobs) == 16
@@ -101,7 +106,29 @@ def test_phase_bundles_are_sixteen_distinct_tasks():
         assert {job.variant for job in jobs} == {"nominal"}
         assert {job.pose_jitter_m for job in jobs} == {0.0}
         seen.append(task_ids)
-    assert seen[0].isdisjoint(seen[1])
+    if not seen:
+        pytest.skip("phase bundles are not checked out")
+    if len(seen) == 2:
+        assert seen[0].isdisjoint(seen[1])
+
+
+def test_v0_packs_the_home_office_tasks_into_one_build():
+    import pytest
+
+    from eval_nav.benchmark.packing import pack_key_for
+
+    root = SOURCE / "envhub" / "environments" / "franka-tabletop-v0"
+    if not (root / "benchmark.yaml").is_file():
+        pytest.skip("franka-tabletop-v0 is not checked out")
+    manifest = load_manifest(root / "benchmark.yaml")
+    assert manifest.version == "franka-tabletop-v0"
+    assert manifest.pack_by == "background"
+    assert manifest.shard_size == 16
+    jobs = expand(manifest)
+    shards = make_shards(jobs, manifest.shard_size, pack_key_for(manifest), mixed=True)
+    assert len(jobs) == 16
+    assert [len(shard.jobs) for shard in shards] == [16]
+    assert len(group_shards(shards)) == 1
 
 
 def test_expansion_ignores_gpu_count():

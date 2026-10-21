@@ -15,6 +15,7 @@ The per-GPU process is ``evaluate.py --worker``. It is not a separate command.
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,10 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Forked per-scene workers inherit the running Isaac app. Windows has no fork, so it runs every scene
+# in this process instead.
+_IN_PROCESS_SCENES = sys.platform == "win32"
 
 
 def _mode(argv: list[str]) -> str:
@@ -73,19 +78,30 @@ def _run_checkpoint() -> None:
 
     from eval_nav import EvalConfig, EvaluationReporter, NavigationEvaluator
 
+    exit_code = 0
     try:
         result = _checkpoint_main(args_cli, EvalConfig, EvaluationReporter, NavigationEvaluator)
         print(f"\n[INFO] Evaluation result: {result}")
     except KeyboardInterrupt:
         print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
-        sys.exit(130)
+        exit_code = 130
+        sys.exit(exit_code)
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+        raise
     except Exception as exc:
         import traceback
 
         print(f"\n[ERROR] Evaluation failed: {exc}", file=sys.stderr)
         traceback.print_exc()
-        sys.exit(1)
+        exit_code = 1
+        sys.exit(exit_code)
     finally:
+        if _IN_PROCESS_SCENES:
+            # Results are on disk. Isaac Sim teardown can hang, so skip it as the forked workers do.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(exit_code)
         simulation_app.close()
 
 
@@ -125,7 +141,7 @@ def _checkpoint_main(args_cli, eval_config_cls, reporter_cls, evaluator_cls):
     original_log_dir = config.log_dir
     config.log_dir = str(run_dir)
 
-    evaluator = evaluator_cls(config, checkpoint_path=config.policy_path)
+    evaluator = evaluator_cls(config, checkpoint_path=config.policy_path, subprocess_mode=_IN_PROCESS_SCENES)
 
     if config.policy_path:
         print(f"[INFO] Policy checkpoint specified: {config.policy_path}")
