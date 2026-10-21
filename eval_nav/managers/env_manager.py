@@ -21,6 +21,9 @@ import gymnasium as gym
 from ..domain.config import EvalConfig
 from ..domain.errors import EnvironmentError
 
+ALL_SCENES = "all"
+"""Scene name of a task whose one stage holds every scene of the bundle. It is not a bundle scene."""
+
 
 class EnvironmentManager:
     """Manages environment lifecycle for navigation evaluation."""
@@ -124,6 +127,8 @@ class EnvironmentManager:
                 
                 missing_scenes = []
                 for scene in scenes:
+                    if scene == ALL_SCENES:
+                        continue
                     if isinstance(scene, int):
                         if scene not in available_scenes:
                             missing_scenes.append(f"Scene index {scene} (available: 0-{len(available_scenes)-1})")

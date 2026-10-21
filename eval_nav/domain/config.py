@@ -24,6 +24,7 @@ _VALID_VERSIONS_PER_TASK_TYPE: dict[str, list[str]] = {
     "navigation.leatherback": ["v1", "v2"],
     "navigation.spot": ["v2", "v3", "v4"],
     "manipulation.pick_place": ["v1", "v2"],
+    "manipulation.multitask.rl": ["v1"],
 }
 
 
@@ -45,6 +46,7 @@ class EvalConfig:
     - ``"navigation.humanoid.runjump"`` — G1 obstacle-course HL (time + clear/land + track + safety)
     - ``"navigation.go2"`` — Go2 LiDAR maze (time vs rated speed + path + stability + envelope)
     - ``"manipulation.pick_place"`` — Franka high-level pick-and-place
+    - ``"manipulation.multitask.rl"`` — in-process learned policies, one stage of benchmark tasks
 
     ``scoring_version`` selects the algorithm *within* that task type:
 
@@ -68,6 +70,8 @@ class EvalConfig:
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
+    | manipulation.multitask.rl | v1       | success * (0.75 + 0.25 * speed)         |
+    +---------------------------+----------+-----------------------------------------+
     """
 
     # -----------------------------------------------------------------------
@@ -88,7 +92,7 @@ class EvalConfig:
     """Task domain that selects the scorer family.
 
     Supported: ``"navigation.leatherback"``, ``"navigation.spot"``,
-    ``"manipulation.pick_place"``.
+    ``"manipulation.pick_place"``, ``"manipulation.multitask.rl"``.
     """
 
     scoring_version: str = "v1"
