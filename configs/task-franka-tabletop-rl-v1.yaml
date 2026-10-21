@@ -1,0 +1,31 @@
+# Evaluation configuration for franka-tabletop-rl-v1.
+#
+# One stage holds all 120 tasks. They share three backgrounds, so a run covers one background
+# and the next run covers the next. num_envs must be at least 44, the largest background group.
+# num_episodes is a multiple of 3 so every task is scored. Upright tasks run and score 0.
+# The tracker checkpoint is best_policy/best_policy.pt in the task project.
+
+task_name: "Nepher-FrankaTabletopRL-HL-EnvhubPlay-v0"
+task_module: "franka_tabletop_rl"
+category: "manipulation"
+task_type: "manipulation.multitask.rl"
+scoring_version: "v1"
+
+env_scenes:
+  - { env_id: "franka-tabletop-rl-v1", scene: "all" }
+
+seeds:
+  - 1
+
+num_episodes: 3
+num_envs: 44
+max_episode_steps: 600
+max_episode_time_s: 80.0
+
+workflow: "rsl_rl"
+policy_path: "default"
+
+enable_cameras: false
+log_dir: "logs/franka-tabletop-rl-v1"
+enable_logging: false
+timeout_seconds: null

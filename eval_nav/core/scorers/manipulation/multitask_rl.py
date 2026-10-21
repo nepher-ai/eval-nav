@@ -13,18 +13,13 @@ not report subtask progress or hand telemetry, so this scorer uses only those th
 
 ``T`` is the completion time [s] and ``T_budget`` is ``max_episode_time_s`` from the eval config.
 Without a time budget, ``T`` is the step count and ``T_budget`` is ``max_episode_steps``. A failed
-episode scores 0. An episode's task is its ``scene`` name. The task score is the mean episode
-score, and the suite score is the unweighted mean of the task scores.
-
-When one scene runs several tasks, the task module's ``tasks_of_scene`` lists them in env order. The
-runner numbers episodes ``run * num_envs + i`` and ``num_envs`` is a multiple of that count, so episode
-``n`` runs task ``n % T``. Keep that scene as the only env_scene, because episode numbers of several
-env_scenes continue each other. A scene the module does not split is scored under its own name.
+episode scores 0. An episode's task is the task id the env recorded for it, or its ``scene`` name
+when the env did not. The task score is the mean episode score, and the suite score is the
+unweighted mean of the task scores.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
 import numpy as np
@@ -63,7 +58,7 @@ class MultitaskRLScorer(BaseScorer):
         scores: dict[str, list[float]] = {}
         successes: dict[str, int] = {}
         for episode in episodes or []:
-            task = _task_of(episode, self.task_module)
+            task = _task_of(episode)
             scores.setdefault(task, []).append(_episode_score(episode, budget, use_steps=use_steps))
             successes[task] = successes.get(task, 0) + int(episode.success)
 
@@ -93,23 +88,11 @@ class MultitaskRLScorer(BaseScorer):
         }
 
 
-def _scene_tasks(task_module: str | None, env_id: str | None, scene: str) -> list[str] | None:
-    """Task ids ``task_module`` assigns to ``scene``. None when it does not split the scene."""
-    if not task_module or env_id is None:
-        return None
-    declare = getattr(importlib.import_module(task_module), "tasks_of_scene", None)
-    if declare is None:
-        return None
-    declared = declare(env_id, scene)
-    return [str(task) for task in declared] if declared else None
-
-
-def _task_of(episode: EpisodeMetrics, task_module: str | None) -> str:
-    """Task id of an episode: its scene name, or task ``episode_id % T`` when the scene runs ``T`` tasks."""
-    tasks = _scene_tasks(task_module, episode.env_id, str(episode.scene))
-    if not tasks or tasks == [str(episode.scene)]:
-        return str(episode.scene)
-    return tasks[episode.episode_id % len(tasks)]
+def _task_of(episode: EpisodeMetrics) -> str:
+    """Task id of an episode, or its scene name when the env did not record one."""
+    if episode.task_id:
+        return str(episode.task_id)
+    return str(episode.scene)
 
 
 def _episode_score(episode: EpisodeMetrics, budget: float, *, use_steps: bool) -> float:

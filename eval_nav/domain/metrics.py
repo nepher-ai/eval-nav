@@ -27,6 +27,8 @@ class EpisodeMetrics:
     """Environment ID."""
     completion_time: float | None = None
     """Completion time in seconds (only for successful episodes)."""
+    task_id: str | None = None
+    """Benchmark task this episode ran, when the env reports one."""
     extra: dict[str, Any] = field(default_factory=dict)
     """Task-specific metrics (e.g. locomotion quality for quadrupeds).
     Populated by the episode runner when the environment exposes the data.
@@ -44,6 +46,8 @@ class EpisodeMetrics:
             "env_id": self.env_id,
             "completion_time": self.completion_time,
         }
+        if self.task_id is not None:
+            d["task_id"] = self.task_id
         if self.extra:
             d["extra"] = self.extra
         return d
