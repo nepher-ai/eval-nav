@@ -21,7 +21,8 @@ seeds:
 num_episodes: 1
 num_envs: 64
 max_episode_steps: 600
-max_episode_time_s: 80.0
+# 40 s is the env horizon (EPISODE_LENGTH_S). A success that uses the whole episode has speed 0.
+max_episode_time_s: 40.0
 
 workflow: "rsl_rl"
 policy_path: "default"
