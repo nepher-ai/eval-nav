@@ -2,7 +2,7 @@
 #
 # Runs the classical high-level planner, the learned end-effector tracker, and IK on the 16 Franka
 # tabletop tasks of the franka-tabletop-rl-v0 EnvHub bundle. v0 has one background, so env i runs
-# task i % T and resets on its own. num_envs must be at least the task count. The scorer reads the
+# task i % T and resets on its own. num_envs is a multiple of the 16 tasks. The scorer reads the
 # task id of the episode each env just finished. The tracker checkpoint is best_policy/best_policy.pt
 # in the task project. Scores are not comparable with the brain benchmarks (v11-v13).
 
