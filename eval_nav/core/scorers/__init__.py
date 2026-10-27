@@ -35,7 +35,7 @@ Manipulation
     - v2 : success_rate × (0.75 + 0.25 × time_efficiency)  [success rate is first-class multiplier]
 
 ``manipulation.multitask.rl`` — in-process learned policies on one benchmark
-    - v1 : mean over tasks of mean episode score; episode = success * (0.75 + 0.25 * speed)
+    - v1 : mean over tasks of mean episode score; episode = success * (0.50 + 0.20 * time + 0.30 * ee)
 
 Usage
 -----

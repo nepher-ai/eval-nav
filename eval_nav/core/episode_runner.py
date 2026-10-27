@@ -22,6 +22,7 @@ from ..domain.errors import EvaluationRuntimeError
 from ..domain.metrics import EpisodeMetrics
 from ..utils.state_logger import StateLogger
 from ..utils.task_checker import check_success
+from .scorers.manipulation.multitask_rl import ee_speed_stats
 from .telemetry import (
     RawTelemetryCollector,
     RunJumpDerivationCfg,
@@ -29,6 +30,17 @@ from .telemetry import (
     derive_naturalness_episode,
     derive_runjump_episode,
 )
+
+
+def _ee_speed_extra(env: Any, env_idx: int, step_dt: float | None = None) -> dict[str, Any]:
+    """Mean and p95 tool speed, plus path length, when the env recorded this episode."""
+    report = getattr(env, "episode_ee_speeds", None)
+    if not callable(report):
+        return {}
+    series = report()
+    if not series or env_idx >= len(series) or series[env_idx] is None:
+        return {}
+    return ee_speed_stats(series[env_idx], step_dt)
 
 
 def _env_report(env, name: str):
@@ -587,6 +599,7 @@ class EpisodeRunner:
                 extra = self._summarise_locomotion(loco_buffers.get(env_idx, {}))
             if step_dt is not None:
                 extra["step_dt"] = step_dt
+            extra.update(_ee_speed_extra(env, env_idx, step_dt))
             results.append(EpisodeMetrics(
                 episode_id=episode_id + env_idx,
                 scene=scene,
@@ -639,7 +652,8 @@ class EpisodeRunner:
             extra = self._summarise_locomotion(loco_buf) if loco_buf else {}
         if step_dt is not None:
             extra["step_dt"] = step_dt
-        
+        extra.update(_ee_speed_extra(env, 0, step_dt))
+
         task_ids = _env_report(env, "episode_task_ids")
         return EpisodeMetrics(
             episode_id=episode_id,

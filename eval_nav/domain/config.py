@@ -70,7 +70,7 @@ class EvalConfig:
     | manipulation.pick_place   | v1       | task success (70%) + time (30%)         |
     |                           | v2       | success_rate × (0.75 + 0.25 × time)     |
     +---------------------------+----------+-----------------------------------------+
-    | manipulation.multitask.rl | v1       | success * (0.75 + 0.25 * speed)         |
+    | manipulation.multitask.rl | v1       | success * (0.50 + 0.20*time + 0.30*ee)  |
     +---------------------------+----------+-----------------------------------------+
     """
 

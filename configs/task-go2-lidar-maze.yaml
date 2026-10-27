@@ -16,7 +16,7 @@ task_name: "Nepher-Go2-LidarMaze-Planner-Envhub-Play-v0"
 task_module: "go2_lidar_maze.tasks"
 
 env_scenes:
-  - env_id: "go2-maze-v0"
+  - env_id: "go2-maze-terrain-v0"
     scene: 0
 
 seeds:

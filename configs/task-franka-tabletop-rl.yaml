@@ -1,10 +1,4 @@
 # Evaluation configuration for task-franka-tabletop-rl
-#
-# Runs the classical high-level planner, the learned end-effector tracker, and IK on the 16 Franka
-# tabletop tasks of the franka-tabletop-rl-v0 EnvHub bundle. v0 has one background, so env i runs
-# task i % T and resets on its own. num_envs is a multiple of the 16 tasks. The scorer reads the
-# task id of the episode each env just finished. The tracker checkpoint is best_policy/best_policy.pt
-# in the task project. Scores are not comparable with the brain benchmarks (v11-v13).
 
 task_name: "Nepher-FrankaTabletopRL-HL-EnvhubPlay-v0"
 task_module: "franka_tabletop_rl"
@@ -16,10 +10,10 @@ env_scenes:
   - { env_id: "franka-tabletop-rl-v0", scene: "all" }
 
 seeds:
-  - 1
+  - 100
 
-num_episodes: 1
-num_envs: 64
+num_episodes: 3
+num_envs: 16
 max_episode_steps: 600
 # 40 s is the env horizon (EPISODE_LENGTH_S). A success that uses the whole episode has speed 0.
 max_episode_time_s: 40.0
@@ -28,6 +22,6 @@ workflow: "rsl_rl"
 policy_path: "default"
 
 enable_cameras: false
-log_dir: "logs/franka-tabletop-rl"
+log_dir: "logs/franka-tabletop-rl-v0"
 enable_logging: false
 timeout_seconds: null

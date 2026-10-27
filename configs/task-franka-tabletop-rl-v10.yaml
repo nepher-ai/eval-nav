@@ -11,7 +11,7 @@ task_type: "manipulation.multitask.rl"
 scoring_version: "v1"
 
 env_scenes:
-  - { env_id: "franka-tabletop-rl-v1", scene: "all" }
+  - { env_id: "franka-tabletop-rl-v10", scene: "all" }
 
 seeds:
   - 1
@@ -26,6 +26,6 @@ workflow: "rsl_rl"
 policy_path: "default"
 
 enable_cameras: false
-log_dir: "logs/franka-tabletop-rl-v1"
+log_dir: "logs/franka-tabletop-rl-v10"
 enable_logging: false
 timeout_seconds: null

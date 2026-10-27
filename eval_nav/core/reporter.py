@@ -87,6 +87,12 @@ class EvaluationReporter:
                 lines.append(f"  Std Steps: {metrics['std_steps']:.2f}")
             if step_dt is not None:
                 lines.append(f"  Step dt: {step_dt:.4f} s")
+            if extra.get("mean_ee_speed_m_s") is not None:
+                lines.append(f"  Mean EE Speed: {extra['mean_ee_speed_m_s']:.3f} m/s")
+            if extra.get("p95_ee_speed_m_s") is not None:
+                lines.append(f"  P95 EE Speed: {extra['p95_ee_speed_m_s']:.3f} m/s")
+            if extra.get("ee_path_length_m") is not None:
+                lines.append(f"  Mean EE Path Length: {extra['ee_path_length_m']:.3f} m")
             
             if extra and "mean_speed" in extra:
                 lines.append("")
