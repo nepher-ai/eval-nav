@@ -32,6 +32,7 @@ class EnvironmentManager:
             config: Evaluation configuration.
         """
         self.config = config
+        self._task_module = None
     
     def import_task_module(self) -> None:
         """Import the task module to ensure environment registration.
@@ -47,6 +48,7 @@ class EnvironmentManager:
                 module = importlib.import_module(self.config.task_module)
                 if module is None:
                     raise ImportError(f"Failed to import module: {self.config.task_module}")
+                self._task_module = module
                 return
             except ImportError as e:
                 raise EnvironmentError(
@@ -91,6 +93,16 @@ class EnvironmentManager:
                 },
             )
     
+    def _tasks_of_scene(self, env_id: str, scene: str | int) -> list[str] | None:
+        """Task ids the task module assigns to ``scene``. None when the module does not own it."""
+        if isinstance(scene, int) or self._task_module is None:
+            return None
+        declare = getattr(self._task_module, "task_ids_of", None)
+        if declare is None:
+            return None
+        declared = declare(env_id, scene)
+        return [str(task) for task in declared] if declared else None
+
     def verify_scenes_available(self) -> None:
         """Verify that all required scenes are available in the navigation environments.
         
@@ -124,6 +136,9 @@ class EnvironmentManager:
                 
                 missing_scenes = []
                 for scene in scenes:
+                    # A task module may own scene ids that are not bundle scenes. It names them.
+                    if self._tasks_of_scene(env_id, scene):
+                        continue
                     if isinstance(scene, int):
                         if scene not in available_scenes:
                             missing_scenes.append(f"Scene index {scene} (available: 0-{len(available_scenes)-1})")
@@ -189,7 +204,12 @@ class EnvironmentManager:
         
         env_config = self.config.env_config.copy() if self.config.env_config else {}
         env_config["env_id"] = env_id
-        env_config["scene_id"] = scene
+        # Navigation and brain cfgs take scene_id. The tabletop RL cfg takes task_id.
+        parameters = inspect.signature(cfg_class).parameters
+        if "task_id" in parameters and "scene_id" not in parameters:
+            env_config["task_id"] = str(scene)
+        else:
+            env_config["scene_id"] = scene
         
         cfg = cfg_class(**env_config)
         

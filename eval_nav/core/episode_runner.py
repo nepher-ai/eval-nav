@@ -22,6 +22,7 @@ from ..domain.errors import EvaluationRuntimeError
 from ..domain.metrics import EpisodeMetrics
 from ..utils.state_logger import StateLogger
 from ..utils.task_checker import check_success
+from .scorers.manipulation.multitask_rl import ee_speed_stats
 from .telemetry import (
     RawTelemetryCollector,
     RunJumpDerivationCfg,
@@ -29,6 +30,25 @@ from .telemetry import (
     derive_naturalness_episode,
     derive_runjump_episode,
 )
+
+
+def _ee_speed_extra(env: Any, env_idx: int, step_dt: float | None = None) -> dict[str, Any]:
+    """Mean and p95 tool speed, plus path length, when the env recorded this episode."""
+    report = getattr(env, "episode_ee_speeds", None)
+    if not callable(report):
+        return {}
+    series = report()
+    if not series or env_idx >= len(series) or series[env_idx] is None:
+        return {}
+    return ee_speed_stats(series[env_idx], step_dt)
+
+
+def _env_report(env, name: str):
+    """Call ``env.name()`` when the env provides it. Missing means this env has no phases."""
+    report = getattr(env, name, None)
+    if report is None:
+        return None
+    return report()
 
 
 def _reset_policy_state(policy: Any | None, dones: Any = None) -> None:
@@ -458,14 +478,20 @@ class EpisodeRunner:
         Returns:
             Whether all environments are done.
         """
+        finished = _env_report(env, "episode_finished")
+        recorded = _env_report(env, "episode_steps") if finished is not None else None
         for env_idx in range(num_envs):
             if not done_per_env[env_idx]:
-                steps_per_env[env_idx] = steps
-                if torch.is_tensor(terminated) and torch.is_tensor(truncated):
-                    done_per_env[env_idx] = bool(terminated[env_idx].item() or truncated[env_idx].item())
+                held = finished is not None and bool(finished[env_idx])
+                if held:
+                    done_per_env[env_idx] = True
+                    steps_per_env[env_idx] = int(recorded[env_idx]) if recorded is not None and int(recorded[env_idx]) >= 0 else steps
                 else:
-                    done_per_env[env_idx] = bool(terminated or truncated)
-                
+                    steps_per_env[env_idx] = steps
+                    if torch.is_tensor(terminated) and torch.is_tensor(truncated):
+                        done_per_env[env_idx] = bool(terminated[env_idx].item() or truncated[env_idx].item())
+                    else:
+                        done_per_env[env_idx] = bool(terminated or truncated)
                 success_per_env[env_idx] = check_success(
                     env=env,
                     info=info,
@@ -473,8 +499,7 @@ class EpisodeRunner:
                     env_idx=env_idx,
                     current_success=success_per_env[env_idx],
                 )
-                
-                if steps >= max_steps:
+                if steps >= max_steps and finished is None:
                     timeout_per_env[env_idx] = True
         
         return all(done_per_env)
@@ -542,6 +567,14 @@ class EpisodeRunner:
         raw_collector: RawTelemetryCollector | None = None,
     ) -> list[EpisodeMetrics]:
         """Finalize metrics for vectorized environment."""
+        task_ids = _env_report(env, "episode_task_ids")
+        recorded = _env_report(env, "episode_steps")
+        phased = _env_report(env, "episode_finished") is not None
+        if phased and recorded is not None:
+            for env_idx, count in enumerate(recorded):
+                if int(count) >= 0:
+                    steps_per_env[env_idx] = int(count)
+                    timeout_per_env[env_idx] = False
         for env_idx in range(num_envs):
             success_per_env[env_idx] = check_success(
                 env=env,
@@ -554,7 +587,7 @@ class EpisodeRunner:
             if success_per_env[env_idx] and not timeout_per_env[env_idx]:
                 raw_steps = float(steps_per_env[env_idx])
                 completion_time_per_env[env_idx] = raw_steps * step_dt if step_dt else raw_steps
-        
+
         results: list[EpisodeMetrics] = []
         for env_idx in range(num_envs):
             if raw_collector is not None:
@@ -566,6 +599,7 @@ class EpisodeRunner:
                 extra = self._summarise_locomotion(loco_buffers.get(env_idx, {}))
             if step_dt is not None:
                 extra["step_dt"] = step_dt
+            extra.update(_ee_speed_extra(env, env_idx, step_dt))
             results.append(EpisodeMetrics(
                 episode_id=episode_id + env_idx,
                 scene=scene,
@@ -575,6 +609,7 @@ class EpisodeRunner:
                 timeout=timeout_per_env[env_idx],
                 env_id=env_id,
                 completion_time=completion_time_per_env[env_idx],
+                task_id=None if task_ids is None else str(task_ids[env_idx]),
                 extra=extra,
             ))
         return results
@@ -617,7 +652,9 @@ class EpisodeRunner:
             extra = self._summarise_locomotion(loco_buf) if loco_buf else {}
         if step_dt is not None:
             extra["step_dt"] = step_dt
-        
+        extra.update(_ee_speed_extra(env, 0, step_dt))
+
+        task_ids = _env_report(env, "episode_task_ids")
         return EpisodeMetrics(
             episode_id=episode_id,
             scene=scene,
@@ -627,6 +664,7 @@ class EpisodeRunner:
             timeout=timeout,
             env_id=env_id,
             completion_time=completion_time,
+            task_id=None if not task_ids else str(task_ids[0]),
             extra=extra,
         )
 

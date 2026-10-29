@@ -1,0 +1,27 @@
+# Evaluation configuration for task-franka-tabletop-rl
+
+task_name: "Nepher-FrankaTabletopRL-HL-EnvhubPlay-v0"
+task_module: "franka_tabletop_rl"
+category: "manipulation"
+task_type: "manipulation.multitask.rl"
+scoring_version: "v1"
+
+env_scenes:
+  - { env_id: "franka-tabletop-rl-v0", scene: "all" }
+
+seeds:
+  - 100
+
+num_episodes: 3
+num_envs: 16
+max_episode_steps: 600
+# 40 s is the env horizon (EPISODE_LENGTH_S). A success that uses the whole episode has speed 0.
+max_episode_time_s: 40.0
+
+workflow: "rsl_rl"
+policy_path: "default"
+
+enable_cameras: false
+log_dir: "logs/franka-tabletop-rl-v0"
+enable_logging: false
+timeout_seconds: null

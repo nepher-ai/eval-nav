@@ -139,6 +139,8 @@ class NavigationEvaluator:
         config.validate()
         self.config = config
         self.scorer = get_scorer(config.task_type, config.scoring_version)
+        if hasattr(self.scorer, "task_module"):
+            self.scorer.task_module = config.task_module
         self.start_time: float | None = None
         self.checkpoint_path = checkpoint_path
         self._policy = None  # Will be loaded lazily

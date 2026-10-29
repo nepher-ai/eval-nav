@@ -11,6 +11,7 @@ Launch Isaac Sim Simulator first.
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,10 @@ import yaml
 from isaaclab.app import AppLauncher
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Forked per-scene workers inherit the running Isaac app. Windows has no fork, so it runs every scene
+# in this process instead.
+_IN_PROCESS_SCENES = sys.platform == "win32"
 
 
 def _apply_enable_cameras_from_config_yaml() -> None:
@@ -112,7 +117,7 @@ def main():
     original_log_dir = config.log_dir
     config.log_dir = str(run_dir)
     
-    evaluator = NavigationEvaluator(config, checkpoint_path=config.policy_path)
+    evaluator = NavigationEvaluator(config, checkpoint_path=config.policy_path, subprocess_mode=_IN_PROCESS_SCENES)
     
     if config.policy_path:
         print(f"[INFO] Policy checkpoint specified: {config.policy_path}")
@@ -170,17 +175,28 @@ def main():
 
 
 if __name__ == "__main__":
+    exit_code = 0
     try:
         result = main()
         print(f"\n[INFO] Evaluation result: {result}")
     except KeyboardInterrupt:
         print("\n[INFO] Evaluation interrupted by user", file=sys.stderr)
-        sys.exit(130)
+        exit_code = 130
+        sys.exit(exit_code)
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else 1
+        raise
     except Exception as e:
         import traceback
         print(f"\n[ERROR] Evaluation failed: {e}", file=sys.stderr)
         traceback.print_exc()
-        sys.exit(1)
+        exit_code = 1
+        sys.exit(exit_code)
     finally:
+        if _IN_PROCESS_SCENES:
+            # Results are on disk. Isaac Sim teardown can hang, so skip it as the forked workers do.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(exit_code)
         simulation_app.close()
 
